@@ -1,8 +1,25 @@
-/* Here ESP32 will keep 2 roles: 
-1/ read data from DHT11/DHT22 sensor
-2/ control led on-off
-So it willpublish temperature topic and scribe topic bulb on/off
+/* 
+Smart Fan Controller for my bathroom's exhaust fan
+
+Bruno Landau Albrecht
+brunolalb@gmail.com
+
+Use at your own will and responsibility
+
+ESP32 is connected to
+* PIR Sensor
+* DHT11 Humidity and Temperature Sensor
+* RGB LED
+* Relay
+
+The Code is FreeRTOS based
+I use MQTT to report and control this module, so remember to update
+  the WiFi network name and password, as well as your MQTT Server address
+My MQTT Server runs Mosquitto
+I also have a NodeRED MQTT Dashboard for fancy reporting
 */
+
+
 #include <stdio.h>
 // wifi stuff
 #include <WiFi.h> // official from esp32 lib (<2.0.0)
