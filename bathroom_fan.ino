@@ -33,9 +33,9 @@ I also have a NodeRED MQTT Dashboard for fancy reporting
 #include <AsyncMqttClient.h> // https://github.com/marvinroger/async-mqtt-client
 // ota
 #include <ESPmDNS.h> // comes with the ESP32 lib
-#include <AsyncElegantOTA.h> // official lib: AsyncElegantOTA
-#include <AsyncTCP.h> // https://github.com/me-no-dev/AsyncTCP
-#include <ESPAsyncWebServer.h> // https://github.com/me-no-dev/ESPAsyncWebServer
+#include <AsyncTCP.h> // by ESP32Async
+#include <ESPAsyncWebServer.h> // by ESP32Async
+#include <ElegantOTA.h> // by Ayush Sharma - set ELEGANTOTA_USE_ASYNC_WEBSERVER to 1 in the library
 // DHT sensor
 #include <DHT.h> // official from Adafruit
 
@@ -156,7 +156,7 @@ SemaphoreHandle_t semph_relay; // controls access to the relay_on_time and relay
  * Debug
  ****************************************/
 
-void debug(char *msg) 
+void debug(const char *msg) 
 {
   if (xPortInIsrContext()) {
     Serial.print("ISR!!");
@@ -171,7 +171,7 @@ void debug(char *msg)
   }  
 }
 
-void debug_nonFreeRTOS(char *msg)
+void debug_nonFreeRTOS(const char *msg)
 {
   Serial.println(msg);
 }
@@ -197,15 +197,17 @@ void setup_WiFi()
 
   delay(1000);
 
-  WiFi.onEvent(WiFiStationStarted, SYSTEM_EVENT_STA_START);
-  WiFi.onEvent(WiFiStationConnected, SYSTEM_EVENT_STA_CONNECTED);
-  WiFi.onEvent(WiFiGotIP, SYSTEM_EVENT_STA_GOT_IP);
-  WiFi.onEvent(WiFiStationDisconnected, SYSTEM_EVENT_STA_DISCONNECTED);
+  WiFi.onEvent(WiFiStationStarted, ARDUINO_EVENT_WIFI_STA_START);
+  WiFi.onEvent(WiFiStationConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  WiFi.onEvent(WiFiGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(WiFiStationDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
 
   // one shot timer
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToWifi));
+  xTimerStop(wifiReconnectTimer, 0);
 }
 
 void reconnectToWifi()
@@ -249,15 +251,23 @@ void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
 
   LED_R_ON();
 
-  snprintf(msg, 50, "Disconnected from WiFi: %u", info.disconnected.reason);
+  snprintf(msg, 50, "Disconnected from WiFi: %u", info.wifi_sta_disconnected.reason);
   debug(msg);
 
   // stop the mqtt reconnect timer to ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
   xTimerStop(mqttReconnectTimer, 0); 
   // stop the ota reconnect timer to ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
   xTimerStop(otaReconnectTimer, 0); 
+
+  WiFi.disconnect(true);
+  delay(1000);
+  WiFi.onEvent(WiFiStationStarted, ARDUINO_EVENT_WIFI_STA_START);
+  WiFi.onEvent(WiFiStationConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  WiFi.onEvent(WiFiGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(WiFiStationDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
   // start the wifi reconnect timer
-  xTimerStart(wifiReconnectTimer, 0);
+  xTimerStart(wifiReconnectTimer, 1000);
 }
 
 /****************************************
@@ -323,7 +333,7 @@ void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
   }
 }
 
-bool mqtt_publish(char *topic, char *payload)
+bool mqtt_publish(const char *topic, const char *payload)
 {
   if (xSemaphoreTake(semph_mqtt, pdMS_TO_TICKS(100)) == pdTRUE) {
     if (mqttClient.connected()) {
@@ -418,13 +428,10 @@ void reconnectToOta()
   /*use mdns for host name resolution*/
   if (!MDNS.begin(WIFI_HOSTNAME)) { //http://<hostname>.local
     debug("Error setting up MDNS responder!");
-    //return;
-    /* while (1) {
-      delay(1000);
-    } */
   }
 
-  AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+  // Start ElegantOTA
+  ElegantOTA.begin(&server);
   debug("Elegant OTA started.");
   
   server.begin();
@@ -437,7 +444,8 @@ void setup_OTA_Updates()
   otaReconnectTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToOta));
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! I am ESP32.");
+    request->send(200, "text/plain", "Hi! I am ESP32. OTA on /update");
+    });
   });
 
 }
@@ -794,4 +802,5 @@ void setup()
 void loop() 
 {
 
+  ElegantOTA.loop();
 }
