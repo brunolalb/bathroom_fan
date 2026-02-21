@@ -38,6 +38,9 @@ I also have a NodeRED MQTT Dashboard for fancy reporting
 #include <ElegantOTA.h> // by Ayush Sharma - set ELEGANTOTA_USE_ASYNC_WEBSERVER to 1 in the library
 // DHT sensor
 #include <DHT.h> // official from Adafruit
+// NTP - time keeping
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -82,6 +85,12 @@ typedef struct {
 /* PIR Sensor */
 #define PIR_PIN       18
 bool movement_detected = false;
+#define PIR_IGNORE_AFTER_HOURS  22
+#define PIR_IGNORE_AFTER_MIN    0
+#define PIR_IGNORE_UNTIL_HOURS  6
+#define PIR_IGNORE_UNTIL_MIN    0
+#define PIR_IGNORE_AFTER        (PIR_IGNORE_AFTER_HOURS * 60 + PIR_IGNORE_AFTER_MIN) 
+#define PIR_IGNORE_UNTIL        (PIR_IGNORE_UNTIL_HOURS * 60 + PIR_IGNORE_UNTIL_MIN)
 
 /* Relay */
 #define RELAY_PIN     4
@@ -121,6 +130,10 @@ SemaphoreHandle_t semph_mqtt;
 #define MQTT_TOPIC_ON_REASON    MQTT_TOPIC_BASE_ADDRESS "/reason_on"    // string
 // buffer
 char global_buffer[20];
+
+// NTPClient
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
 
 /* Application */
 #define CONTROL_LOOP_PERIOD_MS       1000 // everything happens every 1 second
@@ -446,6 +459,9 @@ void setup_OTA_Updates()
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hi! I am ESP32. OTA on /update");
     });
+
+  server.on("/time", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(200, "text/plain", timeClient.getFormattedTime().c_str());
   });
 
 }
@@ -659,9 +675,25 @@ void control_loop(void *params)
     }
 
     // movement detection check
-    if (movement_detected) {
+    if (movement_detected && timeClient.isTimeSet()) {
       movement_detected = false;
             
+      bool ignore = false;
+
+      // Calculate if current time is between ignore intervals
+      int now = timeClient.getHours() * 60 + timeClient.getMinutes();
+
+      if (PIR_IGNORE_AFTER < PIR_IGNORE_UNTIL) {
+        // Interval does not cross midnight
+        if (now >= PIR_IGNORE_AFTER && now < PIR_IGNORE_UNTIL) ignore = true;
+      } else {
+        // Interval crosses midnight
+        if (now >= PIR_IGNORE_AFTER || now < PIR_IGNORE_UNTIL) ignore = true;
+      }
+
+      if (ignore) {
+        debug("Movement ignored due to time interval");
+      } else {
       debug("Movement detected");
       if(xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {
         if (relay_keep_off == 0) { // the relay is not off
@@ -671,6 +703,7 @@ void control_loop(void *params)
         xSemaphoreGive(semph_relay);
       } else {
         debug("control_loop - movement: failed to take mutex");
+        }
       }
     }
 
@@ -758,6 +791,8 @@ void setup()
   /* Wifi Setup */
   setup_WiFi();
 
+  timeClient.begin();
+
   /* MQTT Setup */
   setup_MQTT();
 
@@ -801,6 +836,7 @@ void setup()
  ****************************************/
 void loop() 
 {
+    timeClient.update();
 
   ElegantOTA.loop();
 }
