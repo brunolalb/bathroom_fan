@@ -13,10 +13,6 @@ ESP32 is connected to
 * Relay
 
 The Code is FreeRTOS based
-I use MQTT to report and control this module, so remember to update
-  the WiFi network name and password, as well as your MQTT Server address
-My MQTT Server runs Mosquitto
-I also have a NodeRED MQTT Dashboard for fancy reporting
 */
 
 
@@ -30,8 +26,6 @@ I also have a NodeRED MQTT Dashboard for fancy reporting
 #include "freertos/queue.h"
 #include "freertos/timers.h"
 #include "freertos/event_groups.h"
-// mqtt
-#include <AsyncMqttClient.h> // https://github.com/marvinroger/async-mqtt-client
 // ota
 #include <ESPmDNS.h> // comes with the ESP32 lib
 #include <AsyncTCP.h> // by ESP32Async
@@ -52,16 +46,9 @@ SemaphoreHandle_t semph_debug; // controls access to the debug stuff
  ****************************************/
 void debug(const char *msg);
 void debug_nonFreeRTOS(const char *msg);
-bool mqtt_publish(const char *topic, const char *payload);
-void reconnectToMqtt();
-void onMqttConnect(bool sessionPresent);
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total);
-void send_on_reason();
 void reconnectToOta();
 void movementDetected();
 void DHTTask(void *param);
-void send_relay_status();
 void control_loop(void *params);
 void WiFiTask(void *param);
 
@@ -100,15 +87,26 @@ void reconnectToOta()
   server.begin();
 }
 
+// Wrapper for OTA timer callback
+void otaTimerCallback(TimerHandle_t xTimer)
+{
+  reconnectToOta();
+}
+
 void setup_OTA_Updates()
 {
-  otaReconnectTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToOta));
+  otaReconnectTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, otaTimerCallback);
+  
+  if (otaReconnectTimer == NULL) {
+    debug_nonFreeRTOS("ERROR: Failed to create OTA timer!");
+    return;
+  }
   
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo.");
   });
   server.begin();
-  Serial.println("HTTP server started");
+  debug_nonFreeRTOS("HTTP server started");
 }
 
 /* define DHT pins */
@@ -156,32 +154,6 @@ bool movement_detected = false;
 #define SWITCH_DEBOUNCE_TIME_MS   500
 bool switch_switched = false;
 
-/* MQTT */
-AsyncMqttClient mqttClient;
-TimerHandle_t mqttReconnectTimer;
-SemaphoreHandle_t semph_mqtt;
-// some config
-#define MQTT_MY_NAME      WIFI_HOSTNAME
-#define MQTT_SERVER_IP    IPAddress(192, 168, 1, 42)
-#define MQTT_SERVER_PORT  1883
-#define MQTT_PUBLISH_RETAINED   true  // if true, will publish all messages with the retain flag
-#define MQTT_PUBLISH_QOS        0     // QOS level for published messages
-#define MQTT_SUBSCRIBE_QOS      0     // QOS level for subscribed topics
-// topics
-#define MQTT_TOPIC_HOME         "smarthome/bathroom/"
-#define MQTT_TOPIC_BASE_ADDRESS MQTT_TOPIC_HOME MQTT_MY_NAME
-#define MQTT_TOPIC_DEBUG        MQTT_TOPIC_BASE_ADDRESS "/debug"        // text
-#define MQTT_TOPIC_LED_R        MQTT_TOPIC_BASE_ADDRESS "/led/red"      // 1 or 0
-#define MQTT_TOPIC_LED_G        MQTT_TOPIC_BASE_ADDRESS "/led/green"    // 1 or 0
-#define MQTT_TOPIC_LED_B        MQTT_TOPIC_BASE_ADDRESS "/led/blue"     // 1 or 0
-#define MQTT_TOPIC_HUMIDITY     MQTT_TOPIC_BASE_ADDRESS "/humidity"     // float
-#define MQTT_TOPIC_TEMPERATURE  MQTT_TOPIC_BASE_ADDRESS "/temperature"  // float
-#define MQTT_TOPIC_RELAY_WRITE  MQTT_TOPIC_BASE_ADDRESS "/on_off_feedback" // 1 or 0 - to MQTT
-#define MQTT_TOPIC_RELAY_READ   MQTT_TOPIC_BASE_ADDRESS "/on_off"       // 1 or 0 - from MQTT
-#define MQTT_TOPIC_ON_REASON    MQTT_TOPIC_BASE_ADDRESS "/reason_on"    // string
-// buffer
-char global_buffer[20];
-
 // NTPClient
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
@@ -200,19 +172,9 @@ NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
 #define RELAY_ON_TIME_SEC_MIN           30   // minimum time the relay will be on
 #define RELAY_KEEP_OFF_TIME_SEC_DEFAULT 120  // how much time the relay will remain off if the user asked
 
-typedef enum _on_reason_e {
-  on_movement,
-  on_switch,
-  on_humidity,
-  on_user,
-
-  on_unknown = 255
-} on_reason_e;
-
 /* global variables */
 long relay_on_time = 0; // controls how much time the relay will remain on - this is the soft control
 long relay_keep_off = 15; // controls how much time the relay will remain off - despite anything else
-on_reason_e on_reason = on_unknown;
 
 SemaphoreHandle_t semph_relay; // controls access to the relay_on_time and relay_keep_off
 
@@ -229,7 +191,6 @@ void debug(const char *msg)
   }
 
   if(xSemaphoreTake(semph_debug, pdMS_TO_TICKS(100)) == pdTRUE ) {
-    mqtt_publish(MQTT_TOPIC_DEBUG, msg);
     Serial.println(msg);
     xSemaphoreGive(semph_debug);    
   }  
@@ -252,45 +213,27 @@ void setup_debug()
 
 void WiFiTask(void *param)
 {
-  // This task runs in the background to handle WiFi connection
-  // without blocking other operations
+  // This task monitors WiFi status after initial connection
+  // and handles reconnection if needed
   
-  debug_nonFreeRTOS("WiFiTask: Starting WiFi configuration");
+  debug_nonFreeRTOS("WiFiTask: Monitoring WiFi status");
   
-  // Set hostname
-  WiFi.setHostname(WIFI_HOSTNAME);
-  
-  // Configure WiFiManager
-  wifiManager.setConfigPortalTimeout(180); // 3 minute timeout for config portal
-  wifiManager.setConnectTimeout(20);       // 20 second timeout for connection attempts
-  
-  // Attempt connection - this will block within this task only
-  if (!wifiManager.autoConnect(WIFI_AP_NAME, "admin")) {
-    debug_nonFreeRTOS("WiFiTask: Failed to connect and config timed out");
-  } else {
-    char msg[50];
-    snprintf(msg, 50, "WiFi connected: %s", WiFi.localIP().toString().c_str());
-    debug_nonFreeRTOS(msg);
-    LED_R_OFF();  // Turn off red LED when connected
-    
-    // Start MQTT and OTA timers once WiFi is connected
-    xTimerStart(mqttReconnectTimer, 0);
-    xTimerStart(otaReconnectTimer, 0);
-  }
-  
-  // Task continues to monitor WiFi status
   while (1) {
     if (!WiFi.isConnected()) {
       LED_R_ON();  // Red LED indicates WiFi disconnected
-      debug("WiFi disconnected, waiting for reconnection...");
+      debug("WiFi disconnected, attempting reconnection...");
       
-      // Pause MQTT and OTA while disconnected
-      xTimerStop(mqttReconnectTimer, 0);
+      // Pause OTA while disconnected
       xTimerStop(otaReconnectTimer, 0);
       
-      // Wait for reconnection
-      while (!WiFi.isConnected() && WiFi.status() != WL_DISCONNECTED) {
+      // Try to reconnect
+      WiFi.reconnect();
+      
+      // Wait for reconnection with timeout
+      int timeout = 20;
+      while (!WiFi.isConnected() && timeout > 0) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        timeout--;
       }
       
       if (WiFi.isConnected()) {
@@ -299,9 +242,12 @@ void WiFiTask(void *param)
         debug(msg);
         LED_R_OFF();
         
-        // Resume MQTT and OTA timers
-        xTimerStart(mqttReconnectTimer, 0);
-        xTimerStart(otaReconnectTimer, 0);
+        // Resume OTA timer
+        if (otaReconnectTimer != NULL) {
+          xTimerStart(otaReconnectTimer, 0);
+        }
+      } else {
+        debug("Reconnection failed, will retry...");
       }
     }
     
@@ -313,171 +259,58 @@ void WiFiTask(void *param)
 
 void setup_WiFi() 
 {
-  debug_nonFreeRTOS("Starting WiFi task...");
+  debug_nonFreeRTOS("setup_WiFi: Configuring WiFi mode and hostname...");
   
-  // Create WiFi task that runs asynchronously
-  // Stack size: 10000 bytes, Priority: 1 (lower than control loop)
+  // Very basic WiFi setup - avoid complex WiFiManager calls
+  WiFi.mode(WIFI_STA);
+  delay(100);
+  
+  WiFi.setHostname(WIFI_HOSTNAME);
+  delay(100);
+  
+  // Try to connect using WiFiManager with minimal options
+  wifiManager.setConfigPortalTimeout(180);
+  wifiManager.setConnectTimeout(30);
+  wifiManager.setDebugOutput(false);
+  
+  debug_nonFreeRTOS("setup_WiFi: Attempting WiFiManager connection...");
+  
+  // This is a blocking call - it will not return until connected or timeout
+  bool connected = false;
+  try {
+    connected = wifiManager.autoConnect(WIFI_AP_NAME, "admin");
+  } catch (...) {
+    debug_nonFreeRTOS("setup_WiFi: Exception during WiFiManager");
+    connected = false;
+  }
+  
+  if (connected) {
+    char msg[60];
+    snprintf(msg, 60, "WiFi connected: %s", WiFi.localIP().toString().c_str());
+    debug_nonFreeRTOS(msg);
+    LED_R_OFF();  // Turn off red LED when connected
+    
+    // Start OTA timer once WiFi is connected
+    if (otaReconnectTimer != NULL) {
+      xTimerStart(otaReconnectTimer, 0);
+    } else {
+      debug_nonFreeRTOS("WARNING: OTA timer not initialized");
+    }
+  } else {
+    debug_nonFreeRTOS("setup_WiFi: Connection failed, will retry in monitor task");
+    LED_R_ON();  // Red LED indicates WiFi disconnected
+  }
+  
+  debug_nonFreeRTOS("setup_WiFi: Initial connection attempt complete");
+  
+  // Create WiFi monitoring task after WiFi setup is complete
   xTaskCreate(WiFiTask,
-            "WiFi",      // Task name
-            10000,       // Stack size (in bytes)
-            NULL,        // Parameters
-            1,           // Priority (lower = less priority)
-            NULL);       // Task handle
-  
-  // Return immediately without waiting for WiFi
-  debug_nonFreeRTOS("WiFi task created, continuing with other initialization...");
+            "WiFi_Monitor",
+            8000,
+            NULL,
+            1,
+            NULL);
 }
-
-/****************************************
- * MQTT
- ****************************************/
-void setup_MQTT() 
-{
-  // one shot timer
-  mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToMqtt));
-
-  // semaphore to prevent simultaneous access
-  semph_mqtt = xSemaphoreCreateMutex();
-  xSemaphoreGive(semph_mqtt);  
-  
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onDisconnect(onMqttDisconnect);
-  //mqttClient.onSubscribe(onMqttSubscribe);
-  //mqttClient.onUnsubscribe(onMqttUnsubscribe);
-  //mqttClient.onPublish(onMqttPublish);
-  mqttClient.onMessage(onMqttMessage); // when we receive a message from a subscribed topic
-
-  mqttClient.setServer(MQTT_SERVER_IP, MQTT_SERVER_PORT);
-  mqttClient.setClientId(MQTT_MY_NAME);
-
-  // wait for wifi to start, it will start the timer to connect to the mqtt server
-}
-
-void reconnectToMqtt() 
-{
-  debug("Connecting to MQTT...");
-  mqttClient.connect();
-}
-
-void onMqttConnect(bool sessionPresent) 
-{
-  uint16_t packetIdSub;
-  char msg[100];
-
-  debug("Connected to MQTT.");
-  snprintf(msg, 50, "Session present: %s", sessionPresent ? "True" : "False");
-  
-  /* subscribe to topics with default QoS 0*/
-  packetIdSub = mqttClient.subscribe(MQTT_TOPIC_LED_R, MQTT_SUBSCRIBE_QOS);
-  snprintf(msg, 100, "Subscribing at QoS %u, topic %s, packetId %u", MQTT_SUBSCRIBE_QOS, MQTT_TOPIC_LED_R, packetIdSub);
-  debug(msg);
-  packetIdSub = mqttClient.subscribe(MQTT_TOPIC_LED_G, MQTT_SUBSCRIBE_QOS);
-  snprintf(msg, 100, "Subscribing at QoS %u, topic %s, packetId %u", MQTT_SUBSCRIBE_QOS, MQTT_TOPIC_LED_G, packetIdSub);
-  debug(msg);
-  packetIdSub = mqttClient.subscribe(MQTT_TOPIC_LED_B, MQTT_SUBSCRIBE_QOS);
-  snprintf(msg, 100, "Subscribing at QoS %u, topic %s, packetId %u", MQTT_SUBSCRIBE_QOS, MQTT_TOPIC_LED_B, packetIdSub);
-  debug(msg);
-  packetIdSub = mqttClient.subscribe(MQTT_TOPIC_RELAY_READ, MQTT_SUBSCRIBE_QOS);
-  snprintf(msg, 100, "Subscribing at QoS %u, topic %s, packetId %u", MQTT_SUBSCRIBE_QOS, MQTT_TOPIC_RELAY_READ, packetIdSub);
-  debug(msg);
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) 
-{
-  debug("Disconnected from MQTT.");
-  if (WiFi.isConnected()) {
-    // didn't disconnect because the wifi stopped, so try to connect again    
-    xTimerStart(mqttReconnectTimer, 0);
-  }
-}
-
-bool mqtt_publish(const char *topic, const char *payload)
-{
-  if (xSemaphoreTake(semph_mqtt, pdMS_TO_TICKS(100)) == pdTRUE) {
-    if (mqttClient.connected()) {
-      mqttClient.publish(topic, MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAINED, payload);
-      xSemaphoreGive(semph_mqtt);      
-    } else {
-      xSemaphoreGive(semph_mqtt);
-      return false;
-    }
-  } else {
-    return false;
-  }
-  return true;
-}
-
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) 
-{
-  char msg[200];
-  char new_payload[20];
-  snprintf(new_payload, 20, "%s", payload);
-  new_payload[len] = 0;
-  snprintf(msg, 200, "Message received: %s\r\n payload (%u bytes): %s", 
-                     topic, len, new_payload);
-  debug(msg);
-  
-  if (String(topic) == String(MQTT_TOPIC_LED_R)) {
-    (payload[0] == '1') ? LED_R_ON() : LED_R_OFF();
-  } else if (String(topic) == String(MQTT_TOPIC_LED_G)) {
-    (payload[0] == '1') ? LED_G_ON() : LED_G_OFF();
-  } else if (String(topic) == String(MQTT_TOPIC_LED_B)) {
-    (payload[0] == '1') ? LED_B_ON() : LED_B_OFF();
-  } else if (String(topic) == String(MQTT_TOPIC_RELAY_READ)) {
-    BaseType_t pxHigherPriorityTaskWoken = pdFALSE;    
-    if(xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {    
-      if (payload[0] == '1') {
-        relay_on_time = RELAY_ON_TIME_SEC_DEFAULT;
-        relay_keep_off = 0;
-        on_reason = on_user;
-      } else {
-        relay_on_time = 0;
-        relay_keep_off = RELAY_KEEP_OFF_TIME_SEC_DEFAULT;
-      }
-      xSemaphoreGive(semph_relay);
-    } else {
-      debug("onMqttMessage: failed to get mutex");
-    }
-  } else {
-    // i don't know ...
-  }
-}
-
-void send_on_reason()
-{
-  char msg[20];
-  char debug_msg[50];
-  
-  if (!mqttClient.connected()) {
-    debug("send_on_reason: mqtt disconnected");
-    return;
-  }
-
-  switch(on_reason) {
-    case on_movement:
-      snprintf(msg, 20, "Movement");
-      break;
-    case on_switch:
-      snprintf(msg, 20, "Switch");
-      break;
-    case on_humidity:
-      snprintf(msg, 20, "Humidity");
-      break;
-    case on_user:
-      snprintf(msg, 20, "User");
-      break;
-    default:
-      snprintf(msg, 20, "Unknown");
-      break;
-  }
-  mqtt_publish(MQTT_TOPIC_ON_REASON, msg);
-
-  snprintf(debug_msg, 50, "On Reason: %s", msg);
-  debug(debug_msg);
-
-  on_reason = on_unknown;
-}
-
 
 /****************************************
  * Movement Sensor
@@ -607,25 +440,9 @@ void setup_control()
           NULL );          // task pointer
 }
 
-void send_relay_status()
-{
-  char msg[5];
-
-  if (mqttClient.connected()) {
-    msg[0] = RELAY_IS_ON() ? '1' : '0'; 
-    msg[1] = 0;
-    mqtt_publish(MQTT_TOPIC_RELAY_WRITE, msg);
-
-    if (RELAY_IS_ON()) send_on_reason();
-  }  
-
-}
-
 void control_loop(void *params)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  uint16_t packetId;
-  bool send_relay = false;
   char msg[50];
   bool humidity_high = false;  
   dht_queue_t dht_data;
@@ -636,13 +453,6 @@ void control_loop(void *params)
     dht_data.temperature = -273.0;
     if ((dht_queue) && (xQueueReceive(dht_queue, &dht_data, pdMS_TO_TICKS(100)) == pdPASS)) {
       if (!isnan(dht_data.humidity) && (dht_data.humidity >= 0)) {
-        // publish the humidity
-        snprintf (msg, 20, "%.1lf", dht_data.humidity);
-        mqtt_publish(MQTT_TOPIC_HUMIDITY, msg);        
-        snprintf (msg, 20, "%.1lf", dht_data.temperature);
-        mqtt_publish(MQTT_TOPIC_TEMPERATURE, msg);        
-        // snprintf(msg, 50, "Published on topic %s, packetId %u: %s", MQTT_TOPIC_TEMPERATURE, packetId, msg);
-        // debug(msg);
         // check if humidity within ranges
         if (dht_data.humidity >= HUMIDITY_LIMIT_HIGH_DEFAULT) { // high enough to turn the relay on
           humidity_high = true;
@@ -666,7 +476,6 @@ void control_loop(void *params)
           if( xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {
             if ((relay_keep_off == 0) && (relay_on_time < RELAY_ON_TIME_SEC_MIN)) { // the relay is not on (or will not be on for long)
               relay_on_time = RELAY_ON_TIME_SEC_HUMIDITY; // turn it on for 30 secs at least
-              on_reason = on_humidity;
             }
             xSemaphoreGive(semph_relay);
           } else {
@@ -707,7 +516,6 @@ void control_loop(void *params)
         if(xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {
           if (relay_keep_off == 0) { // the relay is not off
             relay_on_time = RELAY_ON_TIME_SEC_DEFAULT;
-            on_reason = on_movement;
           }
           xSemaphoreGive(semph_relay);
         } else {
@@ -729,7 +537,6 @@ void control_loop(void *params)
           relay_keep_off = RELAY_KEEP_OFF_TIME_SEC_DEFAULT;
         } else {
           // was off, turn on for the default time
-          on_reason = on_switch;
           relay_on_time = RELAY_ON_TIME_SEC_DEFAULT; 
           relay_keep_off = 0;
         }   
@@ -748,7 +555,6 @@ void control_loop(void *params)
           debug(msg);
         }
         relay_keep_off--;
-        if (RELAY_IS_ON()) send_relay = true;
         RELAY_OFF();
         LED_G_OFF();        
       } else if (relay_on_time > 0) {
@@ -758,7 +564,6 @@ void control_loop(void *params)
         }
         relay_on_time--;
         if (!RELAY_IS_ON()) {
-          send_relay = true;
           debug("Relay ON");
         }
         RELAY_ON();
@@ -766,7 +571,6 @@ void control_loop(void *params)
       } else {
         if (RELAY_IS_ON()) {
           relay_keep_off = 5;
-          send_relay = true;
           debug("IDLE");
         }          
         RELAY_OFF();
@@ -775,11 +579,6 @@ void control_loop(void *params)
       xSemaphoreGive(semph_relay);
     } else {
       debug("control_loop: failed to take mutex");
-    }
-
-    if (send_relay) {
-      send_relay = false;
-      send_relay_status();      
     }
 
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(CONTROL_LOOP_PERIOD_MS));
@@ -795,6 +594,13 @@ void setup()
 {
   Serial.begin(115200);
 
+  // CRITICAL: Long delay to ensure ESP32 hardware is fully initialized
+  // This includes WiFi hardware, lwIP stack, and FreeRTOS core
+  // Without this, lwIP is not ready when we try to use WiFi
+  delay(3000);
+  
+  debug_nonFreeRTOS("=== Starting bathroom fan controller ===");
+
   // Initialize LED pins early to show status
   pinMode(LED_R_PIN, OUTPUT); LED_R_ON();   // Red LED on during startup
   pinMode(LED_G_PIN, OUTPUT); LED_G_OFF();
@@ -802,21 +608,14 @@ void setup()
 
   setup_debug();
   
-  debug_nonFreeRTOS("Starting bathroom fan controller...");
-  
-  /* WiFi Setup - runs asynchronously in background */
+  /* WiFi Setup - FIRST after delay to ensure lwIP is ready */
+  debug_nonFreeRTOS("Initializing WiFi...");
   setup_WiFi();
 
   timeClient.begin();
 
-  /* MQTT Setup */
-  setup_MQTT();
-
   /* OTA Update stuff */
   setup_OTA_Updates();
-
-  // Note: WiFi connection happens in background task
-  // MQTT and OTA timers are started by the WiFi task once connected
 
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();
@@ -837,7 +636,11 @@ void setup()
   setup_DHT();  
 
   /* setup movement sensor */
-  setup_movement_sensor();  
+  setup_movement_sensor();
+  
+  /* WiFi Setup - LAST, after all other systems initialized */
+  debug_nonFreeRTOS("All systems initialized, starting WiFi task...");
+  setup_WiFi();
 
   debug_nonFreeRTOS("Setup complete - all systems initialized");
 }
