@@ -23,6 +23,7 @@ I also have a NodeRED MQTT Dashboard for fancy reporting
 #include <stdio.h>
 // wifi stuff
 #include <WiFi.h> // official from esp32 lib (<2.0.0)
+#include <WiFiManager.h> // tzapu WiFiManager
 // FreeRTOS - official FreeRTOS lib
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -52,11 +53,6 @@ SemaphoreHandle_t semph_debug; // controls access to the debug stuff
 void debug(const char *msg);
 void debug_nonFreeRTOS(const char *msg);
 bool mqtt_publish(const char *topic, const char *payload);
-void reconnectToWifi();
-void WiFiStationStarted(WiFiEvent_t event, WiFiEventInfo_t info);
-void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info);
-void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info);
-void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info);
 void reconnectToMqtt();
 void onMqttConnect(bool sessionPresent);
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
@@ -67,16 +63,17 @@ void movementDetected();
 void DHTTask(void *param);
 void send_relay_status();
 void control_loop(void *params);
+void WiFiTask(void *param);
 
-/* WiFi */
+/* WiFi Manager */
 #ifdef EXAUSTOR_TEST
 #define WIFI_HOSTNAME "exaustor_test"
+#define WIFI_AP_NAME "exaustor-test-setup"
 #else
 #define WIFI_HOSTNAME "exaustor"
+#define WIFI_AP_NAME "exaustor-setup"
 #endif
-const char* WIFI_SSID = "";
-const char* WIFI_PASSWORD = "";
-TimerHandle_t wifiReconnectTimer;
+WiFiManager wifiManager;
 
 /* OTA Update */
 TimerHandle_t otaReconnectTimer;
@@ -239,91 +236,85 @@ void setup_debug()
 }
 
 /****************************************
- * WiFi
+ * WiFi Manager (Asynchronous)
  ****************************************/
+
+void WiFiTask(void *param)
+{
+  // This task runs in the background to handle WiFi connection
+  // without blocking other operations
+  
+  debug_nonFreeRTOS("WiFiTask: Starting WiFi configuration");
+  
+  // Set hostname
+  WiFi.setHostname(WIFI_HOSTNAME);
+  
+  // Configure WiFiManager
+  wifiManager.setConfigPortalTimeout(180); // 3 minute timeout for config portal
+  wifiManager.setConnectTimeout(20);       // 20 second timeout for connection attempts
+  
+  // Attempt connection - this will block within this task only
+  if (!wifiManager.autoConnect(WIFI_AP_NAME, "admin")) {
+    debug_nonFreeRTOS("WiFiTask: Failed to connect and config timed out");
+  } else {
+    char msg[50];
+    snprintf(msg, 50, "WiFi connected: %s", WiFi.localIP().toString().c_str());
+    debug_nonFreeRTOS(msg);
+    LED_R_OFF();  // Turn off red LED when connected
+    
+    // Start MQTT and OTA timers once WiFi is connected
+    xTimerStart(mqttReconnectTimer, 0);
+    xTimerStart(otaReconnectTimer, 0);
+  }
+  
+  // Task continues to monitor WiFi status
+  while (1) {
+    if (!WiFi.isConnected()) {
+      LED_R_ON();  // Red LED indicates WiFi disconnected
+      debug("WiFi disconnected, waiting for reconnection...");
+      
+      // Pause MQTT and OTA while disconnected
+      xTimerStop(mqttReconnectTimer, 0);
+      xTimerStop(otaReconnectTimer, 0);
+      
+      // Wait for reconnection
+      while (!WiFi.isConnected() && WiFi.status() != WL_DISCONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+      }
+      
+      if (WiFi.isConnected()) {
+        char msg[50];
+        snprintf(msg, 50, "WiFi reconnected: %s", WiFi.localIP().toString().c_str());
+        debug(msg);
+        LED_R_OFF();
+        
+        // Resume MQTT and OTA timers
+        xTimerStart(mqttReconnectTimer, 0);
+        xTimerStart(otaReconnectTimer, 0);
+      }
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(5000)); // Check WiFi status every 5 seconds
+  }
+  
+  vTaskDelete(NULL); // Should never reach here
+}
 
 void setup_WiFi() 
 {
-  char msg[50];
-  snprintf(msg, 50, "Connecting to %s", WIFI_SSID);
-  debug_nonFreeRTOS(msg);
+  debug_nonFreeRTOS("Starting WiFi task...");
   
-  // delete old config
-  WiFi.disconnect(true);
-
-  delay(1000);
-
-  WiFi.onEvent(WiFiStationStarted, ARDUINO_EVENT_WIFI_STA_START);
-  WiFi.onEvent(WiFiStationConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
-  WiFi.onEvent(WiFiGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-  WiFi.onEvent(WiFiStationDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-
-  // one shot timer
-  wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToWifi));
-  xTimerStop(wifiReconnectTimer, 0);
-}
-
-void reconnectToWifi()
-{
-  debug("Reconnecting to Wifi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);  
-}
-
-void WiFiStationStarted(WiFiEvent_t event, WiFiEventInfo_t info)
-{
-  debug("Station Started");
-  WiFi.setHostname(WIFI_HOSTNAME);
-}
-
-void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
-{
-  debug("Connected to AP successfully!");
-}
-
-void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
-{
-  char msg[30];
-
-  LED_R_OFF();
-
-  debug("WiFi connected");
-  snprintf(msg, 30, "IP address: %s", WiFi.localIP().toString().c_str());
-  debug(msg);
-  snprintf(msg, 30, "RRSI: %i dB", WiFi.RSSI());
-  debug(msg);
-
-  // connect the mqtt again
-  xTimerStart(mqttReconnectTimer, 0);
-  // start the OTA again
-  xTimerStart(otaReconnectTimer, 0);
-}
-
-void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
-{
-  char msg[50];
-
-  LED_R_ON();
-
-  snprintf(msg, 50, "Disconnected from WiFi: %u", info.wifi_sta_disconnected.reason);
-  debug(msg);
-
-  // stop the mqtt reconnect timer to ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  xTimerStop(mqttReconnectTimer, 0); 
-  // stop the ota reconnect timer to ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  xTimerStop(otaReconnectTimer, 0); 
-
-  WiFi.disconnect(true);
-  delay(1000);
-  WiFi.onEvent(WiFiStationStarted, ARDUINO_EVENT_WIFI_STA_START);
-  WiFi.onEvent(WiFiStationConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
-  WiFi.onEvent(WiFiGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-  WiFi.onEvent(WiFiStationDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-
-  // start the wifi reconnect timer
-  xTimerStart(wifiReconnectTimer, 1000);
+  // Create WiFi task that runs asynchronously
+  // Stack size: 10000 bytes, Priority: 1 (lower than control loop)
+  xTaskCreate(WiFiTask,
+            "WiFi",      // Task name
+            10000,       // Stack size (in bytes)
+            NULL,        // Parameters
+            1,           // Priority (lower = less priority)
+            NULL);       // Task handle
+  
+  // Return immediately without waiting for WiFi
+  debug_nonFreeRTOS("WiFi task created, continuing with other initialization...");
 }
 
 /****************************************
@@ -797,9 +788,16 @@ void setup()
 {
   Serial.begin(115200);
 
+  // Initialize LED pins early to show status
+  pinMode(LED_R_PIN, OUTPUT); LED_R_ON();   // Red LED on during startup
+  pinMode(LED_G_PIN, OUTPUT); LED_G_OFF();
+  pinMode(LED_B_PIN, OUTPUT); LED_B_OFF();
+
   setup_debug();
   
-  /* Wifi Setup */
+  debug_nonFreeRTOS("Starting bathroom fan controller...");
+  
+  /* WiFi Setup - runs asynchronously in background */
   setup_WiFi();
 
   timeClient.begin();
@@ -810,14 +808,8 @@ void setup()
   /* OTA Update stuff */
   setup_OTA_Updates();
 
-  // start the wifi reconnect timer
-  xTimerStart(wifiReconnectTimer, 0);
-
-  // while we're connecting:
-  /* set led as output to control led on-off */
-  pinMode(LED_R_PIN, OUTPUT); LED_R_ON();
-  pinMode(LED_G_PIN, OUTPUT); LED_G_OFF();
-  pinMode(LED_B_PIN, OUTPUT); LED_B_OFF();
+  // Note: WiFi connection happens in background task
+  // MQTT and OTA timers are started by the WiFi task once connected
 
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();
@@ -840,6 +832,7 @@ void setup()
   /* setup movement sensor */
   setup_movement_sensor();  
 
+  debug_nonFreeRTOS("Setup complete - all systems initialized");
 }
 
 /****************************************
