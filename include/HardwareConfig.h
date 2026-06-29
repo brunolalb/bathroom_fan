@@ -6,12 +6,10 @@
  ****************************************/
 #ifdef EXAUSTOR_TEST
 #define WIFI_HOSTNAME "exaustor_test"
-#define WIFI_AP_NAME "exaustor-test-setup"
 #else
 #define WIFI_HOSTNAME "exaustor"
-#define WIFI_AP_NAME "exaustor-setup"
 #endif
-#define WIFI_AP_PASSWORD "admin"
+#define WIFI_AP_NAME "exaustor-setup"
 
 /****************************************
  * RGB LED Configuration

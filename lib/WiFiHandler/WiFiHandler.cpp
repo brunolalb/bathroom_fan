@@ -1,18 +1,19 @@
 #include "WiFiHandler.h"
 #include "RGBLed.h"
+#include "ConfigManager.h"
 #include <Arduino.h>
 #include <LittleFS.h>
 
 // Static member initialization
 WiFiHandler *WiFiHandler::_instance = nullptr;
 
-WiFiHandler::WiFiHandler(const char *hostname, const char *apName, const char *apPassword)
+WiFiHandler::WiFiHandler(const char *hostname, const char *apName)
   : _timeClient(_ntpUDP, 60 * 60),  // 1 hour offset in seconds
     _server(80),                       // AsyncWebServer on port 80
     _configManager(nullptr),
+    _deviceConfig(nullptr),
     _hostname(hostname),
     _apName(apName),
-    _apPassword(apPassword),
     _wifiTaskHandle(nullptr),
     _led(nullptr)
 {
@@ -24,42 +25,23 @@ bool WiFiHandler::begin(RGBLed *led)
   _led = led;
 
   // Configure WiFi mode and hostname
-  Serial.println("WiFiHandler: Configuring WiFi mode and hostname...");
   WiFi.mode(WIFI_STA);
-  delay(100);
   WiFi.setHostname(_hostname);
-  delay(100);
 
-  // Configure WiFiManager
-  _wifiManager.setConfigPortalTimeout(180);
-  _wifiManager.setConnectTimeout(30);
+  // Configure WiFiManager - ensure AP is visible and accessible
+  _wifiManager.setConfigPortalBlocking(false);
+  _wifiManager.setConfigPortalTimeout(300);           // 5 minutes for portal timeout
+  _wifiManager.setConnectTimeout(30);                 // 30 seconds to try connecting
+  _wifiManager.setHostname(_hostname);                // Set hostname for AP and STA
   _wifiManager.setDebugOutput(false);
 
   Serial.println("WiFiHandler: Attempting WiFiManager connection...");
 
   // This is a blocking call - it will not return until connected or timeout
-  bool connected = false;
-  try {
-    connected = _wifiManager.autoConnect(_apName, _apPassword);
-  } catch (...) {
-    Serial.println("WiFiHandler: Exception during WiFiManager");
-    connected = false;
-  }
+  bool connected = _wifiManager.autoConnect(_apName);
 
-  if (connected) {
-    char msg[60];
-    snprintf(msg, 60, "WiFi connected: %s", WiFi.localIP().toString().c_str());
-    Serial.println(msg);
-    if (_led) {
-      _led->redOff();  // Turn off red LED when connected
-    }
-    if (!MDNS.begin(_hostname)) {
-      Serial.println("WiFiHandler: Error setting up MDNS responder!");
-    } else {
-      Serial.println("WiFiHandler: mDNS started");
-    }
-  } else {
-    Serial.println("WiFiHandler: Connection failed, will retry in monitor task");
+  if (!connected) {
+    Serial.println("WiFiHandler: Connection failed");
     if (_led) {
       _led->redOn();  // Red LED indicates WiFi disconnected
     }
@@ -77,6 +59,17 @@ bool WiFiHandler::begin(RGBLed *led)
               &_wifiTaskHandle);  // Task handle
 
   return connected;
+}
+
+void WiFiHandler::loop()
+{
+  // This function should be called in the main loop to handle WiFiManager and OTA updates
+  _wifiManager.process();
+  ElegantOTA.loop();
+
+  if (WiFi.isConnected()) {
+    _timeClient.update();
+  }
 }
 
 bool WiFiHandler::isConnected() const
@@ -113,11 +106,6 @@ void WiFiHandler::setupOTA()
   Serial.println("WiFiHandler: HTTP server started");
 }
 
-void WiFiHandler::updateOTA()
-{
-  ElegantOTA.loop();
-}
-
 
 void WiFiHandler::wifiTaskStatic(void *param)
 {
@@ -129,42 +117,31 @@ void WiFiHandler::wifiTaskStatic(void *param)
 
 void WiFiHandler::wifiTask()
 {
+  bool was_connected = false;
   // This task monitors WiFi status after initial connection
   // and handles reconnection if needed
 
   Serial.println("WiFiHandler: Monitoring WiFi status");
 
   while (1) {
-    if (!WiFi.isConnected()) {
+    if ((!WiFi.isConnected())&&(was_connected)) {
+      was_connected = false;
       if (_led) {
         _led->redOn();  // Red LED indicates WiFi disconnected
       }
-      Serial.println("WiFi disconnected, attempting reconnection...");
-
-      // Try to reconnect
-      WiFi.reconnect();
-
-      // Wait for reconnection with timeout
-      int timeout = 20;
-      while (!WiFi.isConnected() && timeout > 0) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        timeout--;
+    } else if (!was_connected) {
+      was_connected = true;
+      
+      char msg[50];
+      snprintf(msg, 50, "WiFi reconnected: %s", WiFi.localIP().toString().c_str());
+      Serial.println(msg);
+      if (_led) {
+        _led->redOff();
       }
-
-      if (WiFi.isConnected()) {
-        char msg[50];
-        snprintf(msg, 50, "WiFi reconnected: %s", WiFi.localIP().toString().c_str());
-        Serial.println(msg);
-        if (_led) {
-          _led->redOff();
-        }
-        if (!MDNS.begin(_hostname)) {
-          Serial.println("WiFiHandler: Error setting up MDNS responder!");
-        } else {
-          Serial.println("WiFiHandler: mDNS started");
-        }
+      if (!MDNS.begin(_hostname)) {
+        Serial.println("WiFiHandler: Error setting up MDNS responder!");
       } else {
-        Serial.println("Reconnection failed, will retry...");
+        Serial.println("WiFiHandler: mDNS restarted");
       }
     }
 
@@ -179,9 +156,10 @@ WiFiHandler::~WiFiHandler()
   }
 }
 
-void WiFiHandler::setupConfigWebServer(void *configManager)
+void WiFiHandler::setupConfigWebServer(void *configManager, void *deviceConfig)
 {
   _configManager = configManager;
+  _deviceConfig = deviceConfig;
   setupConfigPages();
   Serial.println("WiFiHandler: Configuration web server setup complete");
 }
@@ -193,17 +171,28 @@ void WiFiHandler::setupConfigPages()
     Serial.println("WiFiHandler: LittleFS mount failed");
   }
 
-  // Serve index.html for root
-  _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+  // Serve index.html for root (direct send avoids spurious .gz lookup log)
+  _server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/index.html", "text/html");
+  });
 
-  // API endpoints for configuration
+  // API: GET /api/config - return current settings
   _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) {
     handleGetConfig(request);
   });
 
-  _server.on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    handleSetConfig(request);
-  });
+  // API: POST /api/config - update settings (JSON body handler)
+  _server.on("/api/config", HTTP_POST,
+    [this](AsyncWebServerRequest *request) {
+      handleSetConfigBody(request);
+      _configPostBody = "";
+    },
+    nullptr,
+    [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) _configPostBody = "";
+      _configPostBody += String((char *)data, len);
+    }
+  );
 
   _server.on("/api/reset-config", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetConfig(request);
@@ -224,32 +213,102 @@ String WiFiHandler::getConfigJSON()
 
 void WiFiHandler::handleGetConfig(AsyncWebServerRequest *request)
 {
-  // Return current configuration as JSON
-  // This endpoint is intercepted in main.cpp to add proper implementation
-  request->send(200, "application/json", "{\"humidity_limit_high\":60,\"humidity_limit_low\":55,\"quiet_time_start_hour\":22,\"quiet_time_start_min\":0,\"quiet_time_end_hour\":6,\"quiet_time_end_min\":0,\"pir_relay_on_time\":300}");
+  DeviceConfig *config = (DeviceConfig *)_deviceConfig;
+  if (!config) {
+    request->send(500, "application/json", "{\"error\":\"config not initialized\"}");
+    return;
+  }
+  char json[300];
+  snprintf(json, sizeof(json),
+    "{\"humidity_limit_high\":%.1f,\"humidity_limit_low\":%.1f,"
+    "\"quiet_time_start_hour\":%u,\"quiet_time_start_min\":%u,"
+    "\"quiet_time_end_hour\":%u,\"quiet_time_end_min\":%u,"
+    "\"pir_relay_on_time\":%u}",
+    config->humidity_limit_high, config->humidity_limit_low,
+    config->quiet_time_start_hour, config->quiet_time_start_min,
+    config->quiet_time_end_hour, config->quiet_time_end_min,
+    config->pir_relay_on_time);
+  request->send(200, "application/json", json);
 }
 
-void WiFiHandler::handleSetConfig(AsyncWebServerRequest *request)
+void WiFiHandler::handleSetConfigBody(AsyncWebServerRequest *request)
 {
-  // This endpoint receives JSON configuration updates
-  // Implementation needs to be in main.cpp where ConfigManager is accessible
-  if(request->hasParam("body", true)) {
-    String body = request->getParam("body", true)->value();
-    Serial.println("WiFiHandler: Received config update");
+  ConfigManager *cm = (ConfigManager *)_configManager;
+  DeviceConfig *config = (DeviceConfig *)_deviceConfig;
+
+  if (!cm || !config) {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Config not initialized\"}");
+    return;
   }
-  request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration updated. Please verify the new settings.\"}");
+
+  // Simple flat-JSON field extractor (no external dependency needed)
+  auto getFloat = [&](const char *key) -> float {
+    String search = String('"') + key + "\":";    
+    int idx = _configPostBody.indexOf(search);
+    if (idx < 0) return NAN;
+    return _configPostBody.substring(idx + search.length()).toFloat();
+  };
+  auto getInt = [&](const char *key) -> int {
+    String search = String('"') + key + "\":";    
+    int idx = _configPostBody.indexOf(search);
+    if (idx < 0) return -1;
+    return _configPostBody.substring(idx + search.length()).toInt();
+  };
+
+  float hh  = getFloat("humidity_limit_high");
+  float hl  = getFloat("humidity_limit_low");
+  int   qsh = getInt("quiet_time_start_hour");
+  int   qsm = getInt("quiet_time_start_min");
+  int   qeh = getInt("quiet_time_end_hour");
+  int   qem = getInt("quiet_time_end_min");
+  int   pot = getInt("pir_relay_on_time");
+
+  if (!isnan(hh))  config->humidity_limit_high    = hh;
+  if (!isnan(hl))  config->humidity_limit_low     = hl;
+  if (qsh >= 0)    config->quiet_time_start_hour  = (uint16_t)qsh;
+  if (qsm >= 0)    config->quiet_time_start_min   = (uint16_t)qsm;
+  if (qeh >= 0)    config->quiet_time_end_hour    = (uint16_t)qeh;
+  if (qem >= 0)    config->quiet_time_end_min     = (uint16_t)qem;
+  if (pot > 0)     config->pir_relay_on_time      = (uint16_t)pot;
+
+  if (cm->saveConfig(*config)) {
+    request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved.\"}" );
+  } else {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to save configuration.\"}");
+  }
 }
 
 void WiFiHandler::handleResetConfig(AsyncWebServerRequest *request)
 {
-  request->send(200, "application/json", "{\"status\":\"reset\",\"message\":\"Configuration reset to defaults. Device restarting...\"}");
-  delay(1000);
-  ESP.restart();
+  ConfigManager *cm = (ConfigManager *)_configManager;
+  DeviceConfig *config = (DeviceConfig *)_deviceConfig;
+
+  if (!cm || !config) {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Config not initialized\"}");
+    return;
+  }
+
+  if (cm->resetConfig(*config)) {
+    request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration reset to defaults.\"}");
+  } else {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to reset configuration.\"}");
+  }
 }
 
 void WiFiHandler::handleResetWiFi(AsyncWebServerRequest *request)
 {
-  request->send(200, "application/json", "{\"status\":\"reset\",\"message\":\"WiFi credentials cleared. Device restarting...\"}");
-  delay(1000);
-  ESP.restart();
+  ConfigManager *cm = (ConfigManager *)_configManager;
+
+  if (!cm) {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"ConfigManager not initialized\"}");
+    return;
+  }
+
+  if (cm->resetWiFiCredentials()) {
+    request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"WiFi credentials cleared. Device will restart...\"}");
+    delay(1000);
+    ESP.restart();
+  } else {
+    request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to clear WiFi credentials.\"}");
+  }
 }

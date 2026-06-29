@@ -232,7 +232,8 @@
                 fetch('/api/reset-config', { method: 'POST' })
                     .then(response => response.json())
                     .then(data => {
-                        showStatus('Settings reset and device restarting...', 'success');
+                        showStatus('Settings reset to defaults!', 'success');
+                        setTimeout(() => location.reload(), 1500);
                     })
                     .catch(error => showStatus('Error: ' + error, 'error'));
             }

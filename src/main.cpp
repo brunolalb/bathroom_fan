@@ -45,7 +45,7 @@ void debug_nonFreeRTOS(const char *msg);
 void control_loop(void *params);
 
 /* WiFi Handler */
-WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME, WIFI_AP_PASSWORD);
+WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME);
 
 /* Configuration Manager */
 ConfigManager configManager;
@@ -308,7 +308,7 @@ void setup()
   wifiHandler.setupOTA();
 
   /* Configuration Web Server */
-  wifiHandler.setupConfigWebServer(&configManager);
+  wifiHandler.setupConfigWebServer(&configManager, &deviceConfig);
 
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();
@@ -339,7 +339,5 @@ void setup()
  ****************************************/
 void loop() 
 {
-  wifiHandler.getTimeClient().update();
-
-  wifiHandler.updateOTA();
+  wifiHandler.loop();  // Handles WiFiManager and OTA updates
 }

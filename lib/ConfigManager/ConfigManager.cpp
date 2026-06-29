@@ -165,9 +165,15 @@ bool ConfigManager::resetConfig(DeviceConfig& config)
 
 bool ConfigManager::resetWiFiCredentials()
 {
+  // Properly disconnect WiFi and turn off module before resetting
+  WiFi.disconnect(true);  // Disconnect and turn off persistent WiFi
+  WiFi.mode(WIFI_OFF);    // Explicitly turn off WiFi mode
+  delay(500);             // Give it time to settle
+  
+  // Now reset WiFiManager settings
   WiFiManager wm;
   wm.resetSettings();
-  Serial.println("ConfigManager: WiFi credentials reset");
+  Serial.println("ConfigManager: WiFi credentials reset and WiFi module powered off");
   return true;
 }
 

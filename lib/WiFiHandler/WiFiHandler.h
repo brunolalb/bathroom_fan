@@ -21,9 +21,8 @@ public:
    * Constructor - Initializes WiFiHandler
    * @param hostname The hostname for WiFi connection
    * @param apName The AP name for WiFiManager captive portal
-   * @param apPassword The password for WiFiManager captive portal
    */
-  WiFiHandler(const char *hostname, const char *apName, const char *apPassword);
+  WiFiHandler(const char *hostname, const char *apName);
 
   /**
    * Initialize WiFi connection and NTP client
@@ -38,11 +37,6 @@ public:
    * Must be called after begin()
    */
   void setupOTA();
-
-  /**
-   * Update OTA (call ElegantOTA.loop() in main loop)
-   */
-  void updateOTA();
 
   /**
    * Check if WiFi is currently connected
@@ -78,8 +72,11 @@ public:
    * Setup configuration web interface with REST API
    * Must be called after begin()
    * @param configManager Pointer to ConfigManager instance
+   * @param deviceConfig  Pointer to DeviceConfig instance
    */
-  void setupConfigWebServer(void *configManager);
+  void setupConfigWebServer(void *configManager, void *deviceConfig);
+
+  void loop();  // Call this in the main loop to handle WiFiManager and OTA updates
 
   /**
    * Destructor
@@ -92,10 +89,11 @@ private:
   NTPClient _timeClient;
   AsyncWebServer _server;
   void *_configManager;  // Void pointer to avoid circular dependency
+  void *_deviceConfig;   // Void pointer to avoid circular dependency
+  String _configPostBody;
   
   const char *_hostname;
   const char *_apName;
-  const char *_apPassword;
   TaskHandle_t _wifiTaskHandle;
   RGBLed *_led;
   
@@ -108,7 +106,7 @@ private:
   void setupConfigPages();
   String getConfigJSON();
   void handleGetConfig(AsyncWebServerRequest *request);
-  void handleSetConfig(AsyncWebServerRequest *request);
+  void handleSetConfigBody(AsyncWebServerRequest *request);
   void handleResetConfig(AsyncWebServerRequest *request);
   void handleResetWiFi(AsyncWebServerRequest *request);
 };
