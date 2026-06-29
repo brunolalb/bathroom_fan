@@ -77,7 +77,7 @@ WiFiManager wifiManager;
 
 /* OTA Update */
 TimerHandle_t otaReconnectTimer;
-// WebServer server(80);  // Keeping AsyncWebServer for other endpoints
+AsyncWebServer server(80);  // Keeping AsyncWebServer for other endpoints
 
 /****************************************
  * OTA Updates - Simplified (ElegantOTA disabled due to compatibility)
@@ -92,12 +92,23 @@ void reconnectToOta()
   // ElegantOTA is disabled due to AsyncWebServer compatibility issues
   // You can still access /time endpoint for basic functionality
   debug("mDNS started.");
+
+  // Start ElegantOTA
+  ElegantOTA.begin(&server);
+  debug("Elegant OTA started.");
+  
+  server.begin();
 }
 
 void setup_OTA_Updates()
 {
   otaReconnectTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(reconnectToOta));
-  // OTA endpoints removed - ElegantOTA not compatible with AsyncWebServer in this configuration
+  
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo.");
+  });
+  server.begin();
+  Serial.println("HTTP server started");
 }
 
 /* define DHT pins */
@@ -840,7 +851,7 @@ void setup()
  ****************************************/
 void loop() 
 {
-    timeClient.update();
+  timeClient.update();
 
   ElegantOTA.loop();
 }
