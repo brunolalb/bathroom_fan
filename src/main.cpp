@@ -128,29 +128,37 @@ void control_loop(void *params)
   char msg[50];
   bool humidity_high = false;  
   DHTData dht_data;
-  QueueHandle_t dhtQueue = dhtSensor.getQueue();
+  QueueHandle_t dhtQueue = NULL;
 
   while (1) {
-    // humidity check
+    // humidity check (non-blocking receive)
     dht_data.humidity = -1.0;
     dht_data.temperature = -273.0;
-    if ((dhtQueue) && (xQueueReceive(dhtQueue, &dht_data, pdMS_TO_TICKS(100)) == pdPASS)) {
+    if (!dhtQueue) {
+      Serial.println("DHT queue not initialized");
+      dhtQueue = dhtSensor.getQueue();
+    } else if (xQueueReceive(dhtQueue, &dht_data, 0) == pdPASS) {
+      // Serial.print("Humidity: ");
+      // Serial.print(dht_data.humidity);
+      // Serial.print(" %, Temperature: ");
+      // Serial.print(dht_data.temperature);
+      // Serial.println(" C");
       if (!isnan(dht_data.humidity) && (dht_data.humidity >= 0)) {
         // check if humidity within ranges
         if (dht_data.humidity >= deviceConfig.humidity_limit_high) { // high enough to turn the relay on
-          humidity_high = true;
-          if (!led.isBlueOn()) {
+          if (!humidity_high) {
             snprintf(msg, 50, "humidity high: %.1f %%", dht_data.humidity);
             debug(msg);
+            led.blueOn();
           }
-          led.blueOn();
+          humidity_high = true;
         } else if (dht_data.humidity <= deviceConfig.humidity_limit_low) { // low enough to stop controlling
-          humidity_high = false;        
-          if (led.isBlueOn()) {
+          if (humidity_high) {
             snprintf(msg, 50, "humidity low: %.1f %%", dht_data.humidity);
             debug(msg);
+            led.blueOff();
           }
-          led.blueOff();
+          humidity_high = false;        
         } else {
           //between humidity_limit_high and humidity_limit_low
         }
@@ -176,22 +184,23 @@ void control_loop(void *params)
     }
 
     // movement detection check
-    if (pirSensor.isMovementDetected() && timeClient.isTimeSet()) {
+    if (pirSensor.isMovementDetected()) {
       pirSensor.resetMovement();
 
       bool ignore = false;
+      if (timeClient.isTimeSet()) {
+        // Calculate if current time is between ignore intervals (quiet hours)
+        int now = timeClient.getHours() * 60 + timeClient.getMinutes();
+        int quietStart = deviceConfig.quiet_time_start_hour * 60 + deviceConfig.quiet_time_start_min;
+        int quietEnd = deviceConfig.quiet_time_end_hour * 60 + deviceConfig.quiet_time_end_min;
 
-      // Calculate if current time is between ignore intervals (quiet hours)
-      int now = timeClient.getHours() * 60 + timeClient.getMinutes();
-      int quietStart = deviceConfig.quiet_time_start_hour * 60 + deviceConfig.quiet_time_start_min;
-      int quietEnd = deviceConfig.quiet_time_end_hour * 60 + deviceConfig.quiet_time_end_min;
-
-      if (quietStart < quietEnd) {
-        // Interval does not cross midnight
-        if (now >= quietStart && now < quietEnd) ignore = true;
-      } else {
-        // Interval crosses midnight
-        if (now >= quietStart || now < quietEnd) ignore = true;
+        if (quietStart < quietEnd) {
+          // Interval does not cross midnight
+          if (now >= quietStart && now < quietEnd) ignore = true;
+        } else {
+          // Interval crosses midnight
+          if (now >= quietStart || now < quietEnd) ignore = true;
+        }
       }
 
       if (ignore) {
