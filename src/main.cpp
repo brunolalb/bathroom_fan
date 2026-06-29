@@ -17,23 +17,14 @@ The Code is FreeRTOS based
 
 
 #include <stdio.h>
-// wifi stuff
-#include <WiFi.h> // official from esp32 lib (<2.0.0)
-#include <WiFiManager.h> // tzapu WiFiManager
 // FreeRTOS - official FreeRTOS lib
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/timers.h"
 #include "freertos/event_groups.h"
-// ota
-#include <ESPmDNS.h> // comes with the ESP32 lib
-#include <AsyncTCP.h> // by ESP32Async
-#include <ESPAsyncWebServer.h> // by ESP32Async
-#include <ElegantOTA.h> // by Ayush Sharma - set ELEGANTOTA_USE_ASYNC_WEBSERVER to 1 in the library
-// NTP - time keeping
-#include <NTPClient.h>
-#include <WiFiUdp.h>
+// WiFi, NTP, WiFi management, and OTA
+#include "WiFiHandler.h"
 #include "RGBLed.h"
 #include "DHTSensor.h"
 #include "PIRSensor.h"
@@ -47,11 +38,9 @@ SemaphoreHandle_t semph_debug; // controls access to the debug stuff
  ****************************************/
 void debug(const char *msg);
 void debug_nonFreeRTOS(const char *msg);
-void reconnectToOta();
 void control_loop(void *params);
-void WiFiTask(void *param);
 
-/* WiFi Manager */
+/* WiFi Handler */
 #ifdef EXAUSTOR_TEST
 #define WIFI_HOSTNAME "exaustor_test"
 #define WIFI_AP_NAME "exaustor-test-setup"
@@ -59,7 +48,7 @@ void WiFiTask(void *param);
 #define WIFI_HOSTNAME "exaustor"
 #define WIFI_AP_NAME "exaustor-setup"
 #endif
-WiFiManager wifiManager;
+WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME, "admin");
 
 /* RGB LED */
 RGBLed led(2, 5, 21);  // Red pin: 2, Green pin: 5, Blue pin: 21
@@ -70,52 +59,15 @@ DHTSensor dhtSensor(19, DHT11);  // DHT11 on pin 19
 /* PIR Sensor */
 PIRSensor pirSensor(18);  // PIR sensor on pin 18
 
+// Global for NTP time access via WiFiHandler
+#define timeClient (wifiHandler.getTimeClient())
+
 /* OTA Update */
-TimerHandle_t otaReconnectTimer;
-AsyncWebServer server(80);  // Keeping AsyncWebServer for other endpoints
+// OTA is now managed by WiFiHandler
 
 /****************************************
- * OTA Updates - Simplified (ElegantOTA disabled due to compatibility)
+ * Application Configuration
  ****************************************/
-void reconnectToOta()
-{
-  /*use mdns for host name resolution*/
-  if (!MDNS.begin(WIFI_HOSTNAME)) { //http://<hostname>.local
-    debug("Error setting up MDNS responder!");
-  }
-
-  // ElegantOTA is disabled due to AsyncWebServer compatibility issues
-  // You can still access /time endpoint for basic functionality
-  debug("mDNS started.");
-
-  // Start ElegantOTA
-  ElegantOTA.begin(&server);
-  debug("Elegant OTA started.");
-  
-  server.begin();
-}
-
-// Wrapper for OTA timer callback
-void otaTimerCallback(TimerHandle_t xTimer)
-{
-  reconnectToOta();
-}
-
-void setup_OTA_Updates()
-{
-  otaReconnectTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, otaTimerCallback);
-  
-  if (otaReconnectTimer == NULL) {
-    debug_nonFreeRTOS("ERROR: Failed to create OTA timer!");
-    return;
-  }
-  
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo.");
-  });
-  server.begin();
-  debug_nonFreeRTOS("HTTP server started");
-}
 
 /* define DHT pins */
 #define DHTPIN    19
@@ -133,10 +85,6 @@ void setup_OTA_Updates()
 #define SWITCH_IS_ON()  digitalRead(SWITCH_PIN)
 #define SWITCH_DEBOUNCE_TIME_MS   500
 bool switch_switched = false;
-
-// NTPClient
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
 
 /* Application */
 #define CONTROL_LOOP_PERIOD_MS       1000 // everything happens every 1 second
@@ -193,117 +141,6 @@ void setup_debug()
   semph_debug = xSemaphoreCreateMutex();
   xSemaphoreGive(semph_debug);
 }
-
-/****************************************
- * WiFi Manager (Asynchronous)
- ****************************************/
-
-void WiFiTask(void *param)
-{
-  // This task monitors WiFi status after initial connection
-  // and handles reconnection if needed
-  
-  debug_nonFreeRTOS("WiFiTask: Monitoring WiFi status");
-  
-  while (1) {
-    if (!WiFi.isConnected()) {
-      led.redOn();  // Red LED indicates WiFi disconnected
-      debug("WiFi disconnected, attempting reconnection...");
-      
-      // Pause OTA while disconnected
-      xTimerStop(otaReconnectTimer, 0);
-      
-      // Try to reconnect
-      WiFi.reconnect();
-      
-      // Wait for reconnection with timeout
-      int timeout = 20;
-      while (!WiFi.isConnected() && timeout > 0) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        timeout--;
-      }
-      
-      if (WiFi.isConnected()) {
-        char msg[50];
-        snprintf(msg, 50, "WiFi reconnected: %s", WiFi.localIP().toString().c_str());
-        debug(msg);
-        led.redOff();
-        
-        // Resume OTA timer
-        if (otaReconnectTimer != NULL) {
-          xTimerStart(otaReconnectTimer, 0);
-        }
-      } else {
-        debug("Reconnection failed, will retry...");
-      }
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(5000)); // Check WiFi status every 5 seconds
-  }
-  
-  vTaskDelete(NULL); // Should never reach here
-}
-
-void setup_WiFi() 
-{
-  debug_nonFreeRTOS("setup_WiFi: Configuring WiFi mode and hostname...");
-  
-  // Very basic WiFi setup - avoid complex WiFiManager calls
-  WiFi.mode(WIFI_STA);
-  delay(100);
-  
-  WiFi.setHostname(WIFI_HOSTNAME);
-  delay(100);
-  
-  // Try to connect using WiFiManager with minimal options
-  wifiManager.setConfigPortalTimeout(180);
-  wifiManager.setConnectTimeout(30);
-  wifiManager.setDebugOutput(false);
-  
-  debug_nonFreeRTOS("setup_WiFi: Attempting WiFiManager connection...");
-  
-  // This is a blocking call - it will not return until connected or timeout
-  bool connected = false;
-  try {
-    connected = wifiManager.autoConnect(WIFI_AP_NAME, "admin");
-  } catch (...) {
-    debug_nonFreeRTOS("setup_WiFi: Exception during WiFiManager");
-    connected = false;
-  }
-  
-  if (connected) {
-    char msg[60];
-    snprintf(msg, 60, "WiFi connected: %s", WiFi.localIP().toString().c_str());
-    debug_nonFreeRTOS(msg);
-    led.redOff();  // Turn off red LED when connected
-    
-    // Start OTA timer once WiFi is connected
-    if (otaReconnectTimer != NULL) {
-      xTimerStart(otaReconnectTimer, 0);
-    } else {
-      debug_nonFreeRTOS("WARNING: OTA timer not initialized");
-    }
-  } else {
-    debug_nonFreeRTOS("setup_WiFi: Connection failed, will retry in monitor task");
-    led.redOn();  // Red LED indicates WiFi disconnected
-  }
-  
-  debug_nonFreeRTOS("setup_WiFi: Initial connection attempt complete");
-  
-  // Create WiFi monitoring task after WiFi setup is complete
-  xTaskCreate(WiFiTask,
-            "WiFi_Monitor",
-            8000,
-            NULL,
-            1,
-            NULL);
-}
-
-/****************************************
- * Movement Sensor
- ****************************************/
-
-// PIR sensor functionality moved to PIRSensor library
 
 /****************************************
  * User Switch
@@ -521,12 +358,10 @@ void setup()
   
   /* WiFi Setup - FIRST after delay to ensure lwIP is ready */
   debug_nonFreeRTOS("Initializing WiFi...");
-  setup_WiFi();
-
-  timeClient.begin();
+  wifiHandler.begin(&led);
 
   /* OTA Update stuff */
-  setup_OTA_Updates();
+  wifiHandler.setupOTA();
 
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();
@@ -548,10 +383,6 @@ void setup()
 
   /* setup movement sensor */
   pirSensor.begin();
-  
-  /* WiFi Setup - LAST, after all other systems initialized */
-  debug_nonFreeRTOS("All systems initialized, starting WiFi task...");
-  setup_WiFi();
 
   debug_nonFreeRTOS("Setup complete - all systems initialized");
 }
@@ -561,7 +392,7 @@ void setup()
  ****************************************/
 void loop() 
 {
-  timeClient.update();
+  wifiHandler.getTimeClient().update();
 
-  ElegantOTA.loop();
+  wifiHandler.updateOTA();
 }
