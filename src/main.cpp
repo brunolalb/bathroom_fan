@@ -30,6 +30,7 @@ The Code is FreeRTOS based
 #include "RGBLed.h"
 #include "DHTSensor.h"
 #include "PIRSensor.h"
+#include "SwitchSensor.h"
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -54,14 +55,13 @@ DHTSensor dhtSensor(DHTPIN, DHTTYPE);
 /* PIR Sensor */
 PIRSensor pirSensor(PIR_PIN);
 
+/* Switch Sensor */
+SwitchSensor switchSensor(SWITCH_PIN, SWITCH_DEBOUNCE_TIME_MS);
+
 // Global for NTP time access via WiFiHandler
 #define timeClient (wifiHandler.getTimeClient())
 
-/* OTA Update */
-// OTA is now managed by WiFiHandler
 
-/* Switch state */
-bool switch_switched = false;
 
 /* Global variables */
 long relay_on_time = 0;    // Controls how long relay stays ON
@@ -98,32 +98,7 @@ void setup_debug()
   xSemaphoreGive(semph_debug);
 }
 
-/****************************************
- * User Switch
- ****************************************/
-#if SWITCH_ENABLE == 1
-void IRAM_ATTR switchChanged() 
-{
-  static unsigned long last_irq_time = 0;
-  unsigned long irq_time = millis();
 
-  if ((irq_time - last_irq_time) < SWITCH_DEBOUNCE_TIME_MS) {
-    return;
-  }
-  last_irq_time = irq_time;
-
-  switch_switched = true;
-  
-}
-
-void setup_switch()
-{
-  /* set the switch pin to input */
-  pinMode(SWITCH_PIN, INPUT_PULLDOWN);
-  attachInterrupt(digitalPinToInterrupt(SWITCH_PIN), switchChanged, CHANGE);
-  switch_switched = false;
-}
-#endif
 
 /****************************************
  * Control Loop
@@ -229,8 +204,8 @@ void control_loop(void *params)
 
     // switch check
 #if SWITCH_ENABLE == 1    
-    if (switch_switched) {
-      switch_switched = false;
+    if (switchSensor.isSwitched()) {
+      switchSensor.resetSwitch();
       
       debug("Switch Changed");
       if(xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {    
@@ -300,7 +275,7 @@ void setup()
   // CRITICAL: Long delay to ensure ESP32 hardware is fully initialized
   // This includes WiFi hardware, lwIP stack, and FreeRTOS core
   // Without this, lwIP is not ready when we try to use WiFi
-  delay(3000);
+  //delay(3000);
   
   debug_nonFreeRTOS("=== Starting bathroom fan controller ===");
 
@@ -331,7 +306,7 @@ void setup()
 
   /* setup the switch */
 #if SWITCH_ENABLE == 1
-  setup_switch();
+  switchSensor.begin();
 #endif
   
   /* start DHT sensor */
