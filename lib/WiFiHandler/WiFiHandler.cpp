@@ -1,6 +1,7 @@
 #include "WiFiHandler.h"
 #include "RGBLed.h"
 #include <Arduino.h>
+#include <LittleFS.h>
 
 // Static member initialization
 WiFiHandler *WiFiHandler::_instance = nullptr;
@@ -8,7 +9,7 @@ WiFiHandler *WiFiHandler::_instance = nullptr;
 WiFiHandler::WiFiHandler(const char *hostname, const char *apName, const char *apPassword)
   : _timeClient(_ntpUDP, 60 * 60),  // 1 hour offset in seconds
     _server(80),                       // AsyncWebServer on port 80
-    _otaTimer(nullptr),
+    _configManager(nullptr),
     _hostname(hostname),
     _apName(apName),
     _apPassword(apPassword),
@@ -51,6 +52,11 @@ bool WiFiHandler::begin(RGBLed *led)
     Serial.println(msg);
     if (_led) {
       _led->redOff();  // Turn off red LED when connected
+    }
+    if (!MDNS.begin(_hostname)) {
+      Serial.println("WiFiHandler: Error setting up MDNS responder!");
+    } else {
+      Serial.println("WiFiHandler: mDNS started");
     }
   } else {
     Serial.println("WiFiHandler: Connection failed, will retry in monitor task");
@@ -100,26 +106,11 @@ NTPClient& WiFiHandler::getTimeClient()
 
 void WiFiHandler::setupOTA()
 {
-  // Create OTA timer (5 second delay before starting OTA service)
-  _otaTimer = xTimerCreate("otaTimer", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, otaTimerCallbackStatic);
-  
-  if (_otaTimer == nullptr) {
-    Serial.println("WiFiHandler: ERROR - Failed to create OTA timer!");
-    return;
-  }
-  
-  // Setup root endpoint
-  _server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo.");
-  });
+  ElegantOTA.begin(&_server);
+  Serial.println("WiFiHandler: ElegantOTA started");
   
   _server.begin();
   Serial.println("WiFiHandler: HTTP server started");
-  
-  // Start OTA timer if WiFi is connected
-  if (isConnected() && _otaTimer != nullptr) {
-    xTimerStart(_otaTimer, 0);
-  }
 }
 
 void WiFiHandler::updateOTA()
@@ -127,42 +118,6 @@ void WiFiHandler::updateOTA()
   ElegantOTA.loop();
 }
 
-void WiFiHandler::setOtaTimerPaused(bool pause)
-{
-  if (_otaTimer == nullptr) return;
-
-  if (pause) {
-    xTimerStop(_otaTimer, 0);
-  } else {
-    xTimerStart(_otaTimer, 0);
-  }
-}
-
-void WiFiHandler::otaTimerCallbackStatic(TimerHandle_t xTimer)
-{
-  if (_instance) {
-    _instance->otaTimerCallback();
-  }
-}
-
-void WiFiHandler::otaTimerCallback()
-{
-  reconnectToOta();
-}
-
-void WiFiHandler::reconnectToOta()
-{
-  // Setup mDNS for hostname resolution
-  if (!MDNS.begin(_hostname)) {
-    Serial.println("WiFiHandler: Error setting up MDNS responder!");
-  } else {
-    Serial.println("WiFiHandler: mDNS started");
-  }
-
-  // Start ElegantOTA
-  ElegantOTA.begin(&_server);
-  Serial.println("WiFiHandler: ElegantOTA started");
-}
 
 void WiFiHandler::wifiTaskStatic(void *param)
 {
@@ -186,11 +141,6 @@ void WiFiHandler::wifiTask()
       }
       Serial.println("WiFi disconnected, attempting reconnection...");
 
-      // Pause OTA timer while disconnected
-      if (_otaTimer != nullptr) {
-        xTimerStop(_otaTimer, 0);
-      }
-
       // Try to reconnect
       WiFi.reconnect();
 
@@ -208,10 +158,10 @@ void WiFiHandler::wifiTask()
         if (_led) {
           _led->redOff();
         }
-        
-        // Resume OTA timer after reconnection
-        if (_otaTimer != nullptr) {
-          xTimerStart(_otaTimer, 0);
+        if (!MDNS.begin(_hostname)) {
+          Serial.println("WiFiHandler: Error setting up MDNS responder!");
+        } else {
+          Serial.println("WiFiHandler: mDNS started");
         }
       } else {
         Serial.println("Reconnection failed, will retry...");
