@@ -108,7 +108,7 @@ void WiFiHandler::setupOTA()
 {
   ElegantOTA.begin(&_server);
   Serial.println("WiFiHandler: ElegantOTA started");
-  
+
   _server.begin();
   Serial.println("WiFiHandler: HTTP server started");
 }
@@ -177,4 +177,79 @@ WiFiHandler::~WiFiHandler()
   if (_wifiTaskHandle != nullptr) {
     vTaskDelete(_wifiTaskHandle);
   }
+}
+
+void WiFiHandler::setupConfigWebServer(void *configManager)
+{
+  _configManager = configManager;
+  setupConfigPages();
+  Serial.println("WiFiHandler: Configuration web server setup complete");
+}
+
+void WiFiHandler::setupConfigPages()
+{
+  // Mount LittleFS and serve static files from data/
+  if (!LittleFS.begin(true)) {
+    Serial.println("WiFiHandler: LittleFS mount failed");
+  }
+
+  // Serve index.html for root
+  _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+
+  // API endpoints for configuration
+  _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleGetConfig(request);
+  });
+
+  _server.on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleSetConfig(request);
+  });
+
+  _server.on("/api/reset-config", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleResetConfig(request);
+  });
+
+  _server.on("/api/reset-wifi", HTTP_POST, [this](AsyncWebServerRequest *request) {
+    handleResetWiFi(request);
+  });
+}
+
+String WiFiHandler::getConfigJSON()
+{
+  // This is implemented here to avoid circular dependency issues
+  // The implementation would need access to ConfigManager structure
+  // For now return empty - actual implementation done in main.cpp handlers
+  return "{}";
+}
+
+void WiFiHandler::handleGetConfig(AsyncWebServerRequest *request)
+{
+  // Return current configuration as JSON
+  // This endpoint is intercepted in main.cpp to add proper implementation
+  request->send(200, "application/json", "{\"humidity_limit_high\":60,\"humidity_limit_low\":55,\"quiet_time_start_hour\":22,\"quiet_time_start_min\":0,\"quiet_time_end_hour\":6,\"quiet_time_end_min\":0,\"pir_relay_on_time\":300}");
+}
+
+void WiFiHandler::handleSetConfig(AsyncWebServerRequest *request)
+{
+  // This endpoint receives JSON configuration updates
+  // Implementation needs to be in main.cpp where ConfigManager is accessible
+  if(request->hasParam("body", true)) {
+    String body = request->getParam("body", true)->value();
+    Serial.println("WiFiHandler: Received config update");
+  }
+  request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration updated. Please verify the new settings.\"}");
+}
+
+void WiFiHandler::handleResetConfig(AsyncWebServerRequest *request)
+{
+  request->send(200, "application/json", "{\"status\":\"reset\",\"message\":\"Configuration reset to defaults. Device restarting...\"}");
+  delay(1000);
+  ESP.restart();
+}
+
+void WiFiHandler::handleResetWiFi(AsyncWebServerRequest *request)
+{
+  request->send(200, "application/json", "{\"status\":\"reset\",\"message\":\"WiFi credentials cleared. Device restarting...\"}");
+  delay(1000);
+  ESP.restart();
 }

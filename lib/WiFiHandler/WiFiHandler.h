@@ -9,8 +9,8 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
+#include <LittleFS.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
 
 // Forward declaration for LED control
 class RGBLed;
@@ -75,10 +75,11 @@ public:
   NTPClient& getTimeClient();
 
   /**
-   * Pause/Resume OTA timer
-   * @param pause true to pause, false to resume
+   * Setup configuration web interface with REST API
+   * Must be called after begin()
+   * @param configManager Pointer to ConfigManager instance
    */
-  void setOtaTimerPaused(bool pause);
+  void setupConfigWebServer(void *configManager);
 
   /**
    * Destructor
@@ -90,7 +91,7 @@ private:
   WiFiUDP _ntpUDP;
   NTPClient _timeClient;
   AsyncWebServer _server;
-  TimerHandle_t _otaTimer;
+  void *_configManager;  // Void pointer to avoid circular dependency
   
   const char *_hostname;
   const char *_apName;
@@ -98,14 +99,18 @@ private:
   TaskHandle_t _wifiTaskHandle;
   RGBLed *_led;
   
-  // Static data for WiFi task and OTA timer callback
+  // Static data for WiFi task
   static WiFiHandler *_instance;
   static void wifiTaskStatic(void *param);
   void wifiTask();
   
-  static void otaTimerCallbackStatic(TimerHandle_t xTimer);
-  void otaTimerCallback();
-  void reconnectToOta();
+  // Configuration web server handlers
+  void setupConfigPages();
+  String getConfigJSON();
+  void handleGetConfig(AsyncWebServerRequest *request);
+  void handleSetConfig(AsyncWebServerRequest *request);
+  void handleResetConfig(AsyncWebServerRequest *request);
+  void handleResetWiFi(AsyncWebServerRequest *request);
 };
 
 #endif

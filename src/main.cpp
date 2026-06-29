@@ -31,6 +31,7 @@ The Code is FreeRTOS based
 #include "DHTSensor.h"
 #include "PIRSensor.h"
 #include "SwitchSensor.h"
+#include "ConfigManager.h"
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -45,6 +46,10 @@ void control_loop(void *params);
 
 /* WiFi Handler */
 WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME, WIFI_AP_PASSWORD);
+
+/* Configuration Manager */
+ConfigManager configManager;
+DeviceConfig deviceConfig;
 
 /* RGB LED */
 RGBLed led(LED_PIN_RED, LED_PIN_GREEN, LED_PIN_BLUE);
@@ -132,14 +137,14 @@ void control_loop(void *params)
     if ((dhtQueue) && (xQueueReceive(dhtQueue, &dht_data, pdMS_TO_TICKS(100)) == pdPASS)) {
       if (!isnan(dht_data.humidity) && (dht_data.humidity >= 0)) {
         // check if humidity within ranges
-        if (dht_data.humidity >= HUMIDITY_LIMIT_HIGH_DEFAULT) { // high enough to turn the relay on
+        if (dht_data.humidity >= deviceConfig.humidity_limit_high) { // high enough to turn the relay on
           humidity_high = true;
           if (!led.isBlueOn()) {
             snprintf(msg, 50, "humidity high: %.1f %%", dht_data.humidity);
             debug(msg);
           }
           led.blueOn();
-        } else if (dht_data.humidity <= HUMIDITY_LIMIT_LOW_DEFAULT) { // low enough to stop controlling
+        } else if (dht_data.humidity <= deviceConfig.humidity_limit_low) { // low enough to stop controlling
           humidity_high = false;        
           if (led.isBlueOn()) {
             snprintf(msg, 50, "humidity low: %.1f %%", dht_data.humidity);
@@ -147,7 +152,7 @@ void control_loop(void *params)
           }
           led.blueOff();
         } else {
-          //between HUMIDITY_LIMIT_HIGH_DEFAULT and HUMIDITY_LIMIT_LOW_DEFAULT
+          //between humidity_limit_high and humidity_limit_low
         }
 
         if (humidity_high) {
@@ -176,15 +181,17 @@ void control_loop(void *params)
 
       bool ignore = false;
 
-      // Calculate if current time is between ignore intervals
+      // Calculate if current time is between ignore intervals (quiet hours)
       int now = timeClient.getHours() * 60 + timeClient.getMinutes();
+      int quietStart = deviceConfig.quiet_time_start_hour * 60 + deviceConfig.quiet_time_start_min;
+      int quietEnd = deviceConfig.quiet_time_end_hour * 60 + deviceConfig.quiet_time_end_min;
 
-      if (PIR_IGNORE_AFTER < PIR_IGNORE_UNTIL) {
+      if (quietStart < quietEnd) {
         // Interval does not cross midnight
-        if (now >= PIR_IGNORE_AFTER && now < PIR_IGNORE_UNTIL) ignore = true;
+        if (now >= quietStart && now < quietEnd) ignore = true;
       } else {
         // Interval crosses midnight
-        if (now >= PIR_IGNORE_AFTER || now < PIR_IGNORE_UNTIL) ignore = true;
+        if (now >= quietStart || now < quietEnd) ignore = true;
       }
 
       if (ignore) {
@@ -193,7 +200,7 @@ void control_loop(void *params)
         debug("Movement detected");
         if(xSemaphoreTake(semph_relay, pdMS_TO_TICKS(100)) == pdTRUE ) {
           if (relay_keep_off == 0) { // the relay is not off
-            relay_on_time = RELAY_ON_TIME_SEC_DEFAULT;
+            relay_on_time = deviceConfig.pir_relay_on_time;
           }
           xSemaphoreGive(semph_relay);
         } else {
@@ -275,17 +282,23 @@ void setup()
   // CRITICAL: Long delay to ensure ESP32 hardware is fully initialized
   // This includes WiFi hardware, lwIP stack, and FreeRTOS core
   // Without this, lwIP is not ready when we try to use WiFi
-  //delay(3000);
+  delay(3000);
   
   debug_nonFreeRTOS("=== Starting bathroom fan controller ===");
 
   // Initialize LED pins early to show status
   led.begin();
-  led.redOn();   // Red LED on during startup
-  led.greenOff();
-  led.blueOff();
 
   setup_debug();
+  
+  /* Configuration Manager - Initialize and load settings */
+  debug_nonFreeRTOS("Initializing configuration...");
+  if (!configManager.begin()) {
+    debug_nonFreeRTOS("ERROR: Failed to initialize ConfigManager!");
+  }
+  if (!configManager.loadConfig(deviceConfig)) {
+    debug_nonFreeRTOS("Using default configuration");
+  }
   
   /* WiFi Setup - FIRST after delay to ensure lwIP is ready */
   debug_nonFreeRTOS("Initializing WiFi...");
@@ -293,6 +306,9 @@ void setup()
 
   /* OTA Update stuff */
   wifiHandler.setupOTA();
+
+  /* Configuration Web Server */
+  wifiHandler.setupConfigWebServer(&configManager);
 
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();

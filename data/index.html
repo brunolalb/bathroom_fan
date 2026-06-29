@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bathroom Fan Controller</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 480px;
+            margin: 10px auto;
+            padding: 10px;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+        .container {
+            background-color: #1e1e1e;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        h1 {
+            color: #e0e0e0;
+            text-align: center;
+            font-size: 1.2em;
+            margin: 6px 0 10px;
+        }
+        .form-group {
+            margin: 8px 0;
+            padding: 8px 10px;
+            background-color: #2a2a2a;
+            border-radius: 4px;
+        }
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+            font-size: 0.85em;
+            color: #b0b0b0;
+        }
+        input[type="number"], input[type="time"] {
+            width: 100%;
+            padding: 5px 8px;
+            margin-bottom: 4px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #333;
+            color: #e0e0e0;
+            font-size: 0.95em;
+        }
+        small {
+            color: #888;
+            font-size: 0.75em;
+        }
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        button {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .btn-save {
+            background-color: #2e7d32;
+            color: white;
+        }
+        .btn-save:hover {
+            background-color: #388e3c;
+        }
+        .btn-ota {
+            background-color: #1565c0;
+            color: white;
+        }
+        .btn-ota:hover {
+            background-color: #1976d2;
+        }
+        .btn-reset-config {
+            background-color: #e65100;
+            color: white;
+        }
+        .btn-reset-config:hover {
+            background-color: #f57c00;
+        }
+        .btn-reset-wifi {
+            background-color: #b71c1c;
+            color: white;
+        }
+        .btn-reset-wifi:hover {
+            background-color: #c62828;
+        }
+        .status {
+            margin-top: 8px;
+            padding: 8px;
+            border-radius: 4px;
+            text-align: center;
+            display: none;
+        }
+        .status.success {
+            background-color: #1b5e20;
+            color: #a5d6a7;
+            display: block;
+        }
+        .status.error {
+            background-color: #4e0000;
+            color: #ef9a9a;
+            display: block;
+        }
+        .info-section {
+            background-color: #0d2137;
+            color: #90caf9;
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚿 Bathroom Fan Controller</h1>
+        
+        <div class="info-section">
+            <p><strong>Device Configuration</strong></p>
+            <p>Adjust humidity limits and quiet hours below.</p>
+        </div>
+
+        <form id="configForm">
+            <div class="form-group">
+                <label for="humidityHigh">Humidity HIGH Limit (%):</label>
+                <input type="number" id="humidityHigh" name="humidityHigh" min="30" max="100" step="0.5" required>
+                <small>Humidity above this triggers the fan</small>
+            </div>
+
+            <div class="form-group">
+                <label for="humidityLow">Humidity LOW Limit (%):</label>
+                <input type="number" id="humidityLow" name="humidityLow" min="20" max="90" step="0.5" required>
+                <small>Humidity below this turns the fan off</small>
+            </div>
+
+            <div class="form-group">
+                <label for="quietStart">Quiet Time START:</label>
+                <input type="time" id="quietStart" name="quietStart" required>
+                <small>Time to start ignoring motion sensor (24h format)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="quietEnd">Quiet Time END:</label>
+                <input type="time" id="quietEnd" name="quietEnd" required>
+                <small>Time to stop ignoring motion sensor (24h format)</small>
+            </div>
+
+            <div class="form-group">
+                <label for="pirRelayOnTime">Motion Relay ON Time (seconds):</label>
+                <input type="number" id="pirRelayOnTime" name="pirRelayOnTime" min="10" max="3600" step="10" required>
+                <small>How long the fan stays on after motion is detected</small>
+            </div>
+
+            <div class="button-group">
+                <button type="button" class="btn-save" onclick="saveConfig()">💾 Save Settings</button>
+            </div>
+        </form>
+
+        <div class="button-group" style="flex-direction: column;">
+            <button class="btn-ota" onclick="window.location.href='/update'">🔄 Firmware Update (OTA)</button>
+            <button class="btn-reset-config" onclick="resetConfig()">⚠️ Reset to Defaults</button>
+            <button class="btn-reset-wifi" onclick="resetWiFi()">🌐 Clear WiFi &amp; Restart</button>
+        </div>
+
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        // Load configuration on page load
+        window.onload = function() {
+            loadConfig();
+        };
+
+        function loadConfig() {
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('humidityHigh').value = data.humidity_limit_high || 60;
+                    document.getElementById('humidityLow').value = data.humidity_limit_low || 55;
+                    const startHour = String(data.quiet_time_start_hour || 22).padStart(2, '0');
+                    const startMin = String(data.quiet_time_start_min || 0).padStart(2, '0');
+                    document.getElementById('quietStart').value = startHour + ':' + startMin;
+                    const endHour = String(data.quiet_time_end_hour || 6).padStart(2, '0');
+                    const endMin = String(data.quiet_time_end_min || 0).padStart(2, '0');
+                    document.getElementById('quietEnd').value = endHour + ':' + endMin;
+                    document.getElementById('pirRelayOnTime').value = data.pir_relay_on_time || 300;
+                })
+                .catch(error => showStatus('Error loading configuration', 'error'));
+        }
+
+        function saveConfig() {
+            const startTime = document.getElementById('quietStart').value.split(':');
+            const endTime = document.getElementById('quietEnd').value.split(':');
+            
+            const config = {
+                humidity_limit_high: parseFloat(document.getElementById('humidityHigh').value),
+                humidity_limit_low: parseFloat(document.getElementById('humidityLow').value),
+                quiet_time_start_hour: parseInt(startTime[0]),
+                quiet_time_start_min: parseInt(startTime[1]),
+                quiet_time_end_hour: parseInt(endTime[0]),
+                quiet_time_end_min: parseInt(endTime[1]),
+                pir_relay_on_time: parseInt(document.getElementById('pirRelayOnTime').value)
+            };
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                showStatus('Settings saved successfully!', 'success');
+            })
+            .catch(error => showStatus('Error saving configuration: ' + error, 'error'));
+        }
+
+        function resetConfig() {
+            if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+                fetch('/api/reset-config', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showStatus('Settings reset and device restarting...', 'success');
+                    })
+                    .catch(error => showStatus('Error: ' + error, 'error'));
+            }
+        }
+
+        function resetWiFi() {
+            if (confirm('Clear WiFi credentials and restart? You will need to reconfigure WiFi.')) {
+                fetch('/api/reset-wifi', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showStatus('WiFi cleared and device restarting...', 'success');
+                    })
+                    .catch(error => showStatus('Error: ' + error, 'error'));
+            }
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            if (type === 'success') {
+                setTimeout(() => status.style.display = 'none', 5000);
+            }
+        }
+    </script>
+</body>
+</html>
