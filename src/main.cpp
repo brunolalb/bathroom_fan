@@ -503,7 +503,8 @@ void setup_movement_sensor()
 void DHTTask(void *param)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  float humidity_local, temperature_local;
+  float humidity_local = 50.0;    // initialized for EXAUSTOR_TEST mode
+  float temperature_local = 25.0; // initialized for EXAUSTOR_TEST mode
   dht_queue_t queue_data;
   char msg[30];
   
@@ -511,41 +512,36 @@ void DHTTask(void *param)
     queue_data.humidity = -1.0;
     queue_data.temperature = -273.0;
     
-    /* read DHT11 sensor and convert to string */
+    /* read DHT11 sensor */
 #ifdef EXAUSTOR_TEST
     humidity_local = humidity_local + (float(random(-50, 50)) / 10.0);
     if (humidity_local < 50.0) humidity_local = 50.0;
     if (humidity_local > 65.0) humidity_local = 56.0;
-#else    
-    humidity_local = dht.readHumidity();
-#endif
-    if (isnan(humidity_local)) {
-      debug("Failed to read humidity");
-    }
-#ifdef EXAUSTOR_TEST
     temperature_local = temperature_local + (float(random(-10, 10)) / 10.0);
     if (temperature_local < 10.0) temperature_local = 25.0;
-#else
+#else    
+    humidity_local = dht.readHumidity();
     temperature_local = dht.readTemperature();
 #endif
-    if (isnan(temperature_local)) {
+
+    if (isnan(humidity_local)) {
+      debug("Failed to read humidity");
+    } else if (isnan(temperature_local)) {
       debug("Failed to read temperature");
-    } else {}
+    } else {
+      snprintf(msg, 30, "DHT data: %.1f %%, %.1f C", humidity_local, temperature_local);
+      debug(msg);
 
-    snprintf(msg, 30, "DHT data: %.1f %%, %.1f C", humidity_local, temperature_local);
-    debug(msg);
-
-    if ((!isnan(humidity_local)) && (!isnan(temperature_local))) {    
       queue_data.humidity = humidity_local;
       queue_data.temperature = temperature_local;
       if (dht_queue) {
         if (xQueueSend(dht_queue, (void*)&queue_data, pdMS_TO_TICKS(100)) != pdPASS) {
           debug("failed to send data to dht queue");
-        } else {}
-      } else {}
+        }
+      }
     }
 
-    vTaskDelayUntil(&xLastWakeTime, DHT_PERIOD_SEC_DEFAULT * 1000 / portTICK_PERIOD_MS);    
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DHT_PERIOD_SEC_DEFAULT * 1000));    
   } // while(1)
 
 }
