@@ -17,6 +17,8 @@ The Code is FreeRTOS based
 
 
 #include <stdio.h>
+// Configuration
+#include "HardwareConfig.h"
 // FreeRTOS - official FreeRTOS lib
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -41,23 +43,16 @@ void debug_nonFreeRTOS(const char *msg);
 void control_loop(void *params);
 
 /* WiFi Handler */
-#ifdef EXAUSTOR_TEST
-#define WIFI_HOSTNAME "exaustor_test"
-#define WIFI_AP_NAME "exaustor-test-setup"
-#else
-#define WIFI_HOSTNAME "exaustor"
-#define WIFI_AP_NAME "exaustor-setup"
-#endif
-WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME, "admin");
+WiFiHandler wifiHandler(WIFI_HOSTNAME, WIFI_AP_NAME, WIFI_AP_PASSWORD);
 
 /* RGB LED */
-RGBLed led(2, 5, 21);  // Red pin: 2, Green pin: 5, Blue pin: 21
+RGBLed led(LED_PIN_RED, LED_PIN_GREEN, LED_PIN_BLUE);
 
 /* DHT Sensor */
-DHTSensor dhtSensor(19, DHT11);  // DHT11 on pin 19
+DHTSensor dhtSensor(DHTPIN, DHTTYPE);
 
 /* PIR Sensor */
-PIRSensor pirSensor(18);  // PIR sensor on pin 18
+PIRSensor pirSensor(PIR_PIN);
 
 // Global for NTP time access via WiFiHandler
 #define timeClient (wifiHandler.getTimeClient())
@@ -65,51 +60,12 @@ PIRSensor pirSensor(18);  // PIR sensor on pin 18
 /* OTA Update */
 // OTA is now managed by WiFiHandler
 
-/****************************************
- * Application Configuration
- ****************************************/
-
-/* define DHT pins */
-#define DHTPIN    19
-#define DHTTYPE   DHT11
-
-/* Relay */
-#define RELAY_PIN     4
-#define RELAY_ON()    digitalWrite(RELAY_PIN, LOW)
-#define RELAY_OFF()   digitalWrite(RELAY_PIN, HIGH)
-#define RELAY_IS_ON() !digitalRead(RELAY_PIN)
-
-/* Switch */
-#define USE_SWITCH      0
-#define SWITCH_PIN      22
-#define SWITCH_IS_ON()  digitalRead(SWITCH_PIN)
-#define SWITCH_DEBOUNCE_TIME_MS   500
+/* Switch state */
 bool switch_switched = false;
 
-/* Application */
-#define CONTROL_LOOP_PERIOD_MS       1000 // everything happens every 1 second
-#define CONTROL_PERIOD_SEC_DEFAULT   10  // 10sec
-#define CONTROL_PERIOD_SEC_MIN       1   // 1sec
-
-#define HUMIDITY_LIMIT_HIGH_DEFAULT 60.0        // anything higher will trigger the relay
-#define HUMIDITY_LIMIT_LOW_DEFAULT  55.0        // anything lower than this and the relay will shutoff
-
-#define RELAY_ON_TIME_SEC_DEFAULT       300  // if the relay was turned on by presence (or switch), it'll stay on for this much time
-#define RELAY_ON_TIME_SEC_HUMIDITY      60   // if humidity is high, relay will be on for this many seconds
-#define RELAY_ON_TIME_SEC_MIN           30   // minimum time the relay will be on
-#define RELAY_KEEP_OFF_TIME_SEC_DEFAULT 120  // how much time the relay will remain off if the user asked
-
-/* PIR Sensor Configuration */
-#define PIR_IGNORE_AFTER_HOURS  22
-#define PIR_IGNORE_AFTER_MIN    0
-#define PIR_IGNORE_UNTIL_HOURS  6
-#define PIR_IGNORE_UNTIL_MIN    0
-#define PIR_IGNORE_AFTER        (PIR_IGNORE_AFTER_HOURS * 60 + PIR_IGNORE_AFTER_MIN) 
-#define PIR_IGNORE_UNTIL        (PIR_IGNORE_UNTIL_HOURS * 60 + PIR_IGNORE_UNTIL_MIN)
-
-/* global variables */
-long relay_on_time = 0; // controls how much time the relay will remain on - this is the soft control
-long relay_keep_off = 15; // controls how much time the relay will remain off - despite anything else
+/* Global variables */
+long relay_on_time = 0;    // Controls how long relay stays ON
+long relay_keep_off = 15;  // Controls how long relay stays OFF
 
 SemaphoreHandle_t semph_relay; // controls access to the relay_on_time and relay_keep_off
 
@@ -145,7 +101,7 @@ void setup_debug()
 /****************************************
  * User Switch
  ****************************************/
-#if USE_SWITCH == 1
+#if SWITCH_ENABLE == 1
 void IRAM_ATTR switchChanged() 
 {
   static unsigned long last_irq_time = 0;
@@ -272,7 +228,7 @@ void control_loop(void *params)
     }
 
     // switch check
-#if USE_SWITCH == 1    
+#if SWITCH_ENABLE == 1    
     if (switch_switched) {
       switch_switched = false;
       
@@ -374,7 +330,7 @@ void setup()
   setup_control();
 
   /* setup the switch */
-#if USE_SWITCH == 1
+#if SWITCH_ENABLE == 1
   setup_switch();
 #endif
   
