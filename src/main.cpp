@@ -36,6 +36,7 @@ The Code is FreeRTOS based
 #include <WiFiUdp.h>
 #include "RGBLed.h"
 #include "DHTSensor.h"
+#include "PIRSensor.h"
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -47,7 +48,6 @@ SemaphoreHandle_t semph_debug; // controls access to the debug stuff
 void debug(const char *msg);
 void debug_nonFreeRTOS(const char *msg);
 void reconnectToOta();
-void movementDetected();
 void control_loop(void *params);
 void WiFiTask(void *param);
 
@@ -66,6 +66,9 @@ RGBLed led(2, 5, 21);  // Red pin: 2, Green pin: 5, Blue pin: 21
 
 /* DHT Sensor */
 DHTSensor dhtSensor(19, DHT11);  // DHT11 on pin 19
+
+/* PIR Sensor */
+PIRSensor pirSensor(18);  // PIR sensor on pin 18
 
 /* OTA Update */
 TimerHandle_t otaReconnectTimer;
@@ -118,16 +121,6 @@ void setup_OTA_Updates()
 #define DHTPIN    19
 #define DHTTYPE   DHT11
 
-/* PIR Sensor */
-#define PIR_PIN       18
-bool movement_detected = false;
-#define PIR_IGNORE_AFTER_HOURS  22
-#define PIR_IGNORE_AFTER_MIN    0
-#define PIR_IGNORE_UNTIL_HOURS  6
-#define PIR_IGNORE_UNTIL_MIN    0
-#define PIR_IGNORE_AFTER        (PIR_IGNORE_AFTER_HOURS * 60 + PIR_IGNORE_AFTER_MIN) 
-#define PIR_IGNORE_UNTIL        (PIR_IGNORE_UNTIL_HOURS * 60 + PIR_IGNORE_UNTIL_MIN)
-
 /* Relay */
 #define RELAY_PIN     4
 #define RELAY_ON()    digitalWrite(RELAY_PIN, LOW)
@@ -157,6 +150,14 @@ NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
 #define RELAY_ON_TIME_SEC_HUMIDITY      60   // if humidity is high, relay will be on for this many seconds
 #define RELAY_ON_TIME_SEC_MIN           30   // minimum time the relay will be on
 #define RELAY_KEEP_OFF_TIME_SEC_DEFAULT 120  // how much time the relay will remain off if the user asked
+
+/* PIR Sensor Configuration */
+#define PIR_IGNORE_AFTER_HOURS  22
+#define PIR_IGNORE_AFTER_MIN    0
+#define PIR_IGNORE_UNTIL_HOURS  6
+#define PIR_IGNORE_UNTIL_MIN    0
+#define PIR_IGNORE_AFTER        (PIR_IGNORE_AFTER_HOURS * 60 + PIR_IGNORE_AFTER_MIN) 
+#define PIR_IGNORE_UNTIL        (PIR_IGNORE_UNTIL_HOURS * 60 + PIR_IGNORE_UNTIL_MIN)
 
 /* global variables */
 long relay_on_time = 0; // controls how much time the relay will remain on - this is the soft control
@@ -302,18 +303,7 @@ void setup_WiFi()
  * Movement Sensor
  ****************************************/
 
-void IRAM_ATTR movementDetected() 
-{
-  movement_detected = true;
-}
-
-void setup_movement_sensor()
-{
-  /* setup the pir sensor */
-  pinMode(PIR_PIN, INPUT_PULLUP);
-  movement_detected = false;
-  attachInterrupt(digitalPinToInterrupt(PIR_PIN), movementDetected, RISING);
-}
+// PIR sensor functionality moved to PIRSensor library
 
 /****************************************
  * User Switch
@@ -413,8 +403,8 @@ void control_loop(void *params)
     }
 
     // movement detection check
-    if (movement_detected && timeClient.isTimeSet()) {
-      movement_detected = false;
+    if (pirSensor.isMovementDetected() && timeClient.isTimeSet()) {
+      pirSensor.resetMovement();
 
       bool ignore = false;
 
@@ -557,7 +547,7 @@ void setup()
   dhtSensor.begin();  
 
   /* setup movement sensor */
-  setup_movement_sensor();
+  pirSensor.begin();
   
   /* WiFi Setup - LAST, after all other systems initialized */
   debug_nonFreeRTOS("All systems initialized, starting WiFi task...");
