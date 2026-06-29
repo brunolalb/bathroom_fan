@@ -31,12 +31,11 @@ The Code is FreeRTOS based
 #include <AsyncTCP.h> // by ESP32Async
 #include <ESPAsyncWebServer.h> // by ESP32Async
 #include <ElegantOTA.h> // by Ayush Sharma - set ELEGANTOTA_USE_ASYNC_WEBSERVER to 1 in the library
-// DHT sensor
-#include <DHT.h> // official from Adafruit
 // NTP - time keeping
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include "RGBLed.h"
+#include "DHTSensor.h"
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -49,7 +48,6 @@ void debug(const char *msg);
 void debug_nonFreeRTOS(const char *msg);
 void reconnectToOta();
 void movementDetected();
-void DHTTask(void *param);
 void control_loop(void *params);
 void WiFiTask(void *param);
 
@@ -65,6 +63,9 @@ WiFiManager wifiManager;
 
 /* RGB LED */
 RGBLed led(2, 5, 21);  // Red pin: 2, Green pin: 5, Blue pin: 21
+
+/* DHT Sensor */
+DHTSensor dhtSensor(19, DHT11);  // DHT11 on pin 19
 
 /* OTA Update */
 TimerHandle_t otaReconnectTimer;
@@ -116,13 +117,6 @@ void setup_OTA_Updates()
 /* define DHT pins */
 #define DHTPIN    19
 #define DHTTYPE   DHT11
-DHT dht(DHTPIN, DHTTYPE);
-QueueHandle_t dht_queue = NULL;
-typedef struct {
-  float humidity;
-  float temperature;  
-} dht_queue_t;
-
 
 /* PIR Sensor */
 #define PIR_PIN       18
@@ -156,7 +150,6 @@ NTPClient timeClient(ntpUDP, 60*60); // offset in seconds
 #define CONTROL_PERIOD_SEC_DEFAULT   10  // 10sec
 #define CONTROL_PERIOD_SEC_MIN       1   // 1sec
 
-#define DHT_PERIOD_SEC_DEFAULT      CONTROL_PERIOD_SEC_DEFAULT // period to read the DHT
 #define HUMIDITY_LIMIT_HIGH_DEFAULT 60.0        // anything higher will trigger the relay
 #define HUMIDITY_LIMIT_LOW_DEFAULT  55.0        // anything lower than this and the relay will shutoff
 
@@ -323,73 +316,6 @@ void setup_movement_sensor()
 }
 
 /****************************************
- * Humidity/Temperature Sensor (DHT11)
- ****************************************/
-
-void DHTTask(void *param)
-{
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  float humidity_local = 50.0;    // initialized for EXAUSTOR_TEST mode
-  float temperature_local = 25.0; // initialized for EXAUSTOR_TEST mode
-  dht_queue_t queue_data;
-  char msg[30];
-  
-  while(1) {
-    queue_data.humidity = -1.0;
-    queue_data.temperature = -273.0;
-    
-    /* read DHT11 sensor */
-#ifdef EXAUSTOR_TEST
-    humidity_local = humidity_local + (float(random(-50, 50)) / 10.0);
-    if (humidity_local < 50.0) humidity_local = 50.0;
-    if (humidity_local > 65.0) humidity_local = 56.0;
-    temperature_local = temperature_local + (float(random(-10, 10)) / 10.0);
-    if (temperature_local < 10.0) temperature_local = 25.0;
-#else    
-    humidity_local = dht.readHumidity();
-    temperature_local = dht.readTemperature();
-#endif
-
-    if (isnan(humidity_local)) {
-      debug("Failed to read humidity");
-    } else if (isnan(temperature_local)) {
-      debug("Failed to read temperature");
-    } else {
-      snprintf(msg, 30, "DHT data: %.1f %%, %.1f C", humidity_local, temperature_local);
-      debug(msg);
-
-      queue_data.humidity = humidity_local;
-      queue_data.temperature = temperature_local;
-      if (dht_queue) {
-        if (xQueueSend(dht_queue, (void*)&queue_data, pdMS_TO_TICKS(100)) != pdPASS) {
-          debug("failed to send data to dht queue");
-        }
-      }
-    }
-
-    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DHT_PERIOD_SEC_DEFAULT * 1000));    
-  } // while(1)
-
-}
-
-void setup_DHT()
-{
-  dht.begin();
-
-  dht_queue = xQueueCreate(5, sizeof(dht_queue_t));
-  if (dht_queue == NULL) {
-    debug_nonFreeRTOS("failed to create dht queue");    
-  }
-
-  xTaskCreate(DHTTask,
-            "DHT",   // A name just for humans
-            10000,  // Stack size
-            NULL,
-            2,  // priority
-            NULL );
-}
-
-/****************************************
  * User Switch
  ****************************************/
 #if USE_SWITCH == 1
@@ -438,13 +364,14 @@ void control_loop(void *params)
   TickType_t xLastWakeTime = xTaskGetTickCount();
   char msg[50];
   bool humidity_high = false;  
-  dht_queue_t dht_data;
+  DHTData dht_data;
+  QueueHandle_t dhtQueue = dhtSensor.getQueue();
 
   while (1) {
     // humidity check
     dht_data.humidity = -1.0;
     dht_data.temperature = -273.0;
-    if ((dht_queue) && (xQueueReceive(dht_queue, &dht_data, pdMS_TO_TICKS(100)) == pdPASS)) {
+    if ((dhtQueue) && (xQueueReceive(dhtQueue, &dht_data, pdMS_TO_TICKS(100)) == pdPASS)) {
       if (!isnan(dht_data.humidity) && (dht_data.humidity >= 0)) {
         // check if humidity within ranges
         if (dht_data.humidity >= HUMIDITY_LIMIT_HIGH_DEFAULT) { // high enough to turn the relay on
@@ -627,7 +554,7 @@ void setup()
 #endif
   
   /* start DHT sensor */
-  setup_DHT();  
+  dhtSensor.begin();  
 
   /* setup movement sensor */
   setup_movement_sensor();
