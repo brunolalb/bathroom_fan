@@ -36,6 +36,7 @@ The Code is FreeRTOS based
 // NTP - time keeping
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include "RGBLed.h"
 
 // debug stuff
 SemaphoreHandle_t semph_debug; // controls access to the debug stuff
@@ -61,6 +62,9 @@ void WiFiTask(void *param);
 #define WIFI_AP_NAME "exaustor-setup"
 #endif
 WiFiManager wifiManager;
+
+/* RGB LED */
+RGBLed led(2, 5, 21);  // Red pin: 2, Green pin: 5, Blue pin: 21
 
 /* OTA Update */
 TimerHandle_t otaReconnectTimer;
@@ -119,17 +123,6 @@ typedef struct {
   float temperature;  
 } dht_queue_t;
 
-/* RGB LED GPIO pins */
-#define LED_R_PIN     2
-#define LED_R_ON()    digitalWrite(LED_R_PIN, LOW)
-#define LED_R_OFF()   digitalWrite(LED_R_PIN, HIGH)
-#define LED_G_PIN     5
-#define LED_G_ON()    digitalWrite(LED_G_PIN, LOW)
-#define LED_G_OFF()   digitalWrite(LED_G_PIN, HIGH)
-#define LED_B_PIN     21
-#define LED_B_ON()    digitalWrite(LED_B_PIN, LOW)
-#define LED_B_OFF()   digitalWrite(LED_B_PIN, HIGH)
-#define LED_B_IS_ON() (!digitalRead(LED_B_PIN))
 
 /* PIR Sensor */
 #define PIR_PIN       18
@@ -220,7 +213,7 @@ void WiFiTask(void *param)
   
   while (1) {
     if (!WiFi.isConnected()) {
-      LED_R_ON();  // Red LED indicates WiFi disconnected
+      led.redOn();  // Red LED indicates WiFi disconnected
       debug("WiFi disconnected, attempting reconnection...");
       
       // Pause OTA while disconnected
@@ -240,7 +233,7 @@ void WiFiTask(void *param)
         char msg[50];
         snprintf(msg, 50, "WiFi reconnected: %s", WiFi.localIP().toString().c_str());
         debug(msg);
-        LED_R_OFF();
+        led.redOff();
         
         // Resume OTA timer
         if (otaReconnectTimer != NULL) {
@@ -288,7 +281,7 @@ void setup_WiFi()
     char msg[60];
     snprintf(msg, 60, "WiFi connected: %s", WiFi.localIP().toString().c_str());
     debug_nonFreeRTOS(msg);
-    LED_R_OFF();  // Turn off red LED when connected
+    led.redOff();  // Turn off red LED when connected
     
     // Start OTA timer once WiFi is connected
     if (otaReconnectTimer != NULL) {
@@ -298,7 +291,7 @@ void setup_WiFi()
     }
   } else {
     debug_nonFreeRTOS("setup_WiFi: Connection failed, will retry in monitor task");
-    LED_R_ON();  // Red LED indicates WiFi disconnected
+    led.redOn();  // Red LED indicates WiFi disconnected
   }
   
   debug_nonFreeRTOS("setup_WiFi: Initial connection attempt complete");
@@ -456,18 +449,18 @@ void control_loop(void *params)
         // check if humidity within ranges
         if (dht_data.humidity >= HUMIDITY_LIMIT_HIGH_DEFAULT) { // high enough to turn the relay on
           humidity_high = true;
-          if (!LED_B_IS_ON()) {
+          if (!led.isBlueOn()) {
             snprintf(msg, 50, "humidity high: %.1f %%", dht_data.humidity);
             debug(msg);
           }
-          LED_B_ON();
+          led.blueOn();
         } else if (dht_data.humidity <= HUMIDITY_LIMIT_LOW_DEFAULT) { // low enough to stop controlling
           humidity_high = false;        
-          if (LED_B_IS_ON()) {
+          if (led.isBlueOn()) {
             snprintf(msg, 50, "humidity low: %.1f %%", dht_data.humidity);
             debug(msg);
           }
-          LED_B_OFF();
+          led.blueOff();
         } else {
           //between HUMIDITY_LIMIT_HIGH_DEFAULT and HUMIDITY_LIMIT_LOW_DEFAULT
         }
@@ -556,7 +549,7 @@ void control_loop(void *params)
         }
         relay_keep_off--;
         RELAY_OFF();
-        LED_G_OFF();        
+        led.greenOff();        
       } else if (relay_on_time > 0) {
         if (relay_on_time % 10 == 0) {
           snprintf(msg, 50, "Relay on: %lu", relay_on_time);
@@ -567,14 +560,14 @@ void control_loop(void *params)
           debug("Relay ON");
         }
         RELAY_ON();
-        LED_G_ON();
+        led.greenOn();
       } else {
         if (RELAY_IS_ON()) {
           relay_keep_off = 5;
           debug("IDLE");
         }          
         RELAY_OFF();
-        LED_G_OFF();
+        led.greenOff();
       }
       xSemaphoreGive(semph_relay);
     } else {
@@ -602,9 +595,10 @@ void setup()
   debug_nonFreeRTOS("=== Starting bathroom fan controller ===");
 
   // Initialize LED pins early to show status
-  pinMode(LED_R_PIN, OUTPUT); LED_R_ON();   // Red LED on during startup
-  pinMode(LED_G_PIN, OUTPUT); LED_G_OFF();
-  pinMode(LED_B_PIN, OUTPUT); LED_B_OFF();
+  led.begin();
+  led.redOn();   // Red LED on during startup
+  led.greenOff();
+  led.blueOff();
 
   setup_debug();
   
