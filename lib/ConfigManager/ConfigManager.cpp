@@ -1,6 +1,7 @@
 #include "ConfigManager.h"
 #include <Arduino.h>
 #include <WiFiManager.h>
+#include "HardwareConfig.h"
 
 ConfigManager::ConfigManager()
   : _nvsHandle(0),
@@ -179,13 +180,13 @@ bool ConfigManager::resetWiFiCredentials()
 
 void ConfigManager::initDefaultConfig(DeviceConfig& config)
 {
-  config.humidity_limit_high = 60.0;
-  config.humidity_limit_low = 55.0;
-  config.quiet_time_start_hour = 22;
-  config.quiet_time_start_min = 0;
-  config.quiet_time_end_hour = 6;
-  config.quiet_time_end_min = 0;
-  config.pir_relay_on_time = 300;
+  config.humidity_limit_high = HUMIDITY_LIMIT_HIGH_DEFAULT;
+  config.humidity_limit_low = HUMIDITY_LIMIT_LOW_DEFAULT;
+  config.quiet_time_start_hour = QUIET_TIME_START_HOUR_DEFAULT;
+  config.quiet_time_start_min = QUIET_TIME_START_MIN_DEFAULT;
+  config.quiet_time_end_hour = QUIET_TIME_END_HOUR_DEFAULT;
+  config.quiet_time_end_min = QUIET_TIME_END_MIN_DEFAULT;
+  config.pir_relay_on_time = PIR_RELAY_ON_TIME_DEFAULT;
 }
 
 ConfigManager::~ConfigManager()

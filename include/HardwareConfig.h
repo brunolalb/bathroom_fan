@@ -56,12 +56,20 @@
  ****************************************/
 #define CONTROL_LOOP_PERIOD_MS       1000  // Main control loop period in milliseconds
 
-#define HUMIDITY_LIMIT_HIGH_DEFAULT  60.0  // Humidity level to trigger relay ON
-#define HUMIDITY_LIMIT_LOW_DEFAULT   55.0  // Humidity level to trigger relay OFF
-
 #define RELAY_ON_TIME_SEC_DEFAULT    300   // Default relay ON time (seconds)
 #define RELAY_ON_TIME_SEC_HUMIDITY   60    // Relay ON time when humidity triggers it
 #define RELAY_ON_TIME_SEC_MIN        30    // Minimum relay ON time
 #define RELAY_KEEP_OFF_TIME_SEC_DEFAULT 120 // How long to keep relay OFF after timeout
+
+/****************************************
+ * Default Device Configuration
+ ****************************************/
+#define HUMIDITY_LIMIT_HIGH_DEFAULT   60.0  // Humidity level to trigger relay ON
+#define HUMIDITY_LIMIT_LOW_DEFAULT    55.0  // Humidity level to trigger relay OFF
+#define QUIET_TIME_START_HOUR_DEFAULT 22   // Quiet hours start (24h format)
+#define QUIET_TIME_START_MIN_DEFAULT  0    // Quiet hours start minutes
+#define QUIET_TIME_END_HOUR_DEFAULT   6    // Quiet hours end (24h format)
+#define QUIET_TIME_END_MIN_DEFAULT    0    // Quiet hours end minutes
+#define PIR_RELAY_ON_TIME_DEFAULT     300  // PIR relay on time in seconds
 
 #endif
