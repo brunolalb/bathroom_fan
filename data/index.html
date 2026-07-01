@@ -181,6 +181,7 @@
             align-items: center;
             justify-content: center;
             margin-bottom: 15px;
+            position: relative;
         }
 
         .fan-icon {
@@ -189,10 +190,27 @@
             height: 60px;
             text-align: center;
             line-height: 60px;
+            position: relative;
         }
 
         .fan-icon.on {
             animation: spin 2s linear infinite;
+        }
+
+        .fan-wind-icon {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 65%;
+            transform: translate(-50%, -50%);
+            font-size: 0.8em;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.85;
+        }
+
+        .fan-wind-icon.visible {
+            display: block;
         }
 
         @keyframes spin {
@@ -226,6 +244,7 @@
 
         <div class="fan-status">
             <div class="fan-icon" id="fanIcon">🌀</div>
+            <div class="fan-wind-icon" id="fanWindIcon">💨</div>
         </div>
 
         <div class="sensors-grid">
@@ -413,19 +432,22 @@
                 .then(response => response.json())
                 .then(data => {
                     const fanIcon = document.getElementById('fanIcon');
+                    const fanWindIcon = document.getElementById('fanWindIcon');
                     const isOn = data.relay_on || data.fan_on || false;
                     
                     if (isOn) {
-                        fanIcon.textContent = '💨';
                         fanIcon.classList.add('on');
+                        fanWindIcon.classList.add('visible');
                     } else {
-                        fanIcon.textContent = '🌀';
                         fanIcon.classList.remove('on');
+                        fanWindIcon.classList.remove('visible');
                     }
                 })
                 .catch(error => {
                     const fanIcon = document.getElementById('fanIcon');
+                    const fanWindIcon = document.getElementById('fanWindIcon');
                     fanIcon.textContent = '⚠️';
+                    fanWindIcon.classList.remove('visible');
                 });
         }
 
