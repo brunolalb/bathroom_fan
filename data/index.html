@@ -49,6 +49,17 @@
             color: #e0e0e0;
             font-size: 0.95em;
         }
+        select {
+            width: 100%;
+            padding: 5px 8px;
+            margin-bottom: 4px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #333;
+            color: #e0e0e0;
+            font-size: 0.95em;
+        }
         small {
             color: #888;
             font-size: 0.75em;
@@ -120,6 +131,17 @@
             margin-bottom: 8px;
             font-size: 0.85em;
         }
+        .time-display {
+            background-color: #1b5e20;
+            color: #a5d6a7;
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            text-align: center;
+            font-size: 1.1em;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
     </style>
 </head>
 <body>
@@ -162,6 +184,47 @@
                 <small>How long the fan stays on after motion is detected</small>
             </div>
 
+            <div class="form-group">
+                <label for="timezoneOffset">Timezone:</label>
+                <select id="timezoneOffset" name="timezoneOffset" required>
+                    <optgroup label="UTC">
+                        <option value="UTC0">UTC / GMT</option>
+                    </optgroup>
+                    <optgroup label="Americas">
+                        <option value="PST8PDT,M3.2.0/2,M11.1.0/2">Los Angeles (PST/PDT)</option>
+                        <option value="MST7MDT,M3.2.0/2,M11.1.0/2">Denver (MST/MDT)</option>
+                        <option value="CST6CDT,M3.2.0/2,M11.1.0/2">Chicago (CST/CDT)</option>
+                        <option value="EST5EDT,M3.2.0/2,M11.1.0/2">New York (EST/EDT)</option>
+                        <option value="ART3ARST,M10.1.0/0,M3.3.0/0">Buenos Aires (ART)</option>
+                        <option value="BRST3BRDT,M10.3.0/0,M2.3.0/0">São Paulo (BRST)</option>
+                    </optgroup>
+                    <optgroup label="Europe">
+                        <option value="WET0WEST,M3.5.0/1,M10.5.0">Lisbon (WET/WEST)</option>
+                        <option value="CET-1CEST,M3.5.0/2,M10.5.0/3" selected>Paris/Berlin (CET/CEST)</option>
+                        <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Athens (EET/EEST)</option>
+                        <option value="GMT0IST,M3.5.0/1,M10.5.0">London (GMT/IST)</option>
+                    </optgroup>
+                    <optgroup label="Africa">
+                        <option value="EET-2">Cairo (EET)</option>
+                        <option value="SAST-2">South Africa (SAST)</option>
+                    </optgroup>
+                    <optgroup label="Asia">
+                        <option value="IST-5:30">India (IST)</option>
+                        <option value="+08">Singapore/Hong Kong (SGT)</option>
+                        <option value="JST-9">Japan (JST)</option>
+                        <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Sydney (AEST/AEDT)</option>
+                    </optgroup>
+                    <optgroup label="Pacific">
+                        <option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand (NZST/NZDT)</option>
+                    </optgroup>
+                </select>
+                <small>Select your timezone to match local time</small>
+            </div>
+
+            <div class="time-display" id="currentTime">
+                🕐 --:-- (loading...)
+            </div>
+
             <div class="button-group">
                 <button type="button" class="btn-save" onclick="saveConfig()">💾 Save Settings</button>
             </div>
@@ -180,7 +243,24 @@
         // Load configuration on page load
         window.onload = function() {
             loadConfig();
+            updateTime();  // Initial time update
+            setInterval(updateTime, 1000);  // Update time every second
         };
+
+        function updateTime() {
+            fetch('/api/time')
+                .then(response => response.json())
+                .then(data => {
+                    const hours = String(data.hours).padStart(2, '0');
+                    const minutes = String(data.minutes).padStart(2, '0');
+                    const timeStr = `${hours}:${minutes}`;
+                    const statusStr = data.is_set ? '✓ Time set' : '⚠ Syncing...';
+                    document.getElementById('currentTime').textContent = `🕐 ${timeStr} (${statusStr})`;
+                })
+                .catch(error => {
+                    document.getElementById('currentTime').textContent = '🕐 -- :-- (error)';
+                });
+        }
 
         function loadConfig() {
             fetch('/api/config')
@@ -195,6 +275,9 @@
                     const endMin = String(data.quiet_time_end_min || 0).padStart(2, '0');
                     document.getElementById('quietEnd').value = endHour + ':' + endMin;
                     document.getElementById('pirRelayOnTime').value = data.pir_relay_on_time || 300;
+                    if (data.timezone_posix) {
+                        document.getElementById('timezoneOffset').value = data.timezone_posix;
+                    }
                 })
                 .catch(error => showStatus('Error loading configuration', 'error'));
         }
@@ -210,7 +293,8 @@
                 quiet_time_start_min: parseInt(startTime[1]),
                 quiet_time_end_hour: parseInt(endTime[0]),
                 quiet_time_end_min: parseInt(endTime[1]),
-                pir_relay_on_time: parseInt(document.getElementById('pirRelayOnTime').value)
+                pir_relay_on_time: parseInt(document.getElementById('pirRelayOnTime').value),
+                timezone_posix: document.getElementById('timezoneOffset').value
             };
 
             fetch('/api/config', {

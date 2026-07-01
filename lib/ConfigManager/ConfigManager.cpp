@@ -85,6 +85,14 @@ bool ConfigManager::loadConfig(DeviceConfig& config)
     return false;
   }
 
+  // Read timezone POSIX string
+  size_t tz_len = sizeof(config.timezone_posix);
+  err = nvs_get_str(_nvsHandle, "timezone_posix", config.timezone_posix, &tz_len);
+  if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+    Serial.println("ConfigManager: Error reading timezone_posix");
+    return false;
+  }
+
   // If any value was not found, initialize to defaults and save
   if (err == ESP_ERR_NVS_NOT_FOUND) {
     initDefaultConfig(config);
@@ -148,6 +156,12 @@ bool ConfigManager::saveConfig(const DeviceConfig& config)
     return false;
   }
 
+  err = nvs_set_str(_nvsHandle, "timezone_posix", config.timezone_posix);
+  if (err != ESP_OK) {
+    Serial.println("ConfigManager: Error saving timezone_posix");
+    return false;
+  }
+
   err = nvs_commit(_nvsHandle);
   if (err != ESP_OK) {
     Serial.println("ConfigManager: Error committing to NVS");
@@ -187,6 +201,8 @@ void ConfigManager::initDefaultConfig(DeviceConfig& config)
   config.quiet_time_end_hour = QUIET_TIME_END_HOUR_DEFAULT;
   config.quiet_time_end_min = QUIET_TIME_END_MIN_DEFAULT;
   config.pir_relay_on_time = PIR_RELAY_ON_TIME_DEFAULT;
+  strncpy(config.timezone_posix, TIMEZONE_POSIX_DEFAULT, sizeof(config.timezone_posix) - 1);
+  config.timezone_posix[sizeof(config.timezone_posix) - 1] = '\0';
 }
 
 ConfigManager::~ConfigManager()

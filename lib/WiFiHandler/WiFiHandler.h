@@ -72,6 +72,12 @@ public:
   void loop();  // Call this in the main loop to handle WiFiManager and OTA updates
 
   /**
+   * Apply POSIX timezone with full DST support using configTzTime
+   * @param posixTz POSIX timezone string (e.g., "CET-1CEST,M3.5.0/2,M10.5.0/3")
+   */
+  void applyTimezone(const char *posixTz);
+
+  /**
    * Destructor
    */
   ~WiFiHandler();
@@ -97,6 +103,7 @@ private:
   void setupConfigPages();
   String getConfigJSON();
   void handleGetConfig(AsyncWebServerRequest *request);
+  void handleGetTime(AsyncWebServerRequest *request);
   void handleSetConfigBody(AsyncWebServerRequest *request);
   void handleResetConfig(AsyncWebServerRequest *request);
   void handleResetWiFi(AsyncWebServerRequest *request);

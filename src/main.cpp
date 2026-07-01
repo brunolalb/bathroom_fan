@@ -315,6 +315,9 @@ void setup()
   /* Configuration Web Server */
   wifiHandler.setupConfigWebServer(&configManager, &deviceConfig);
 
+  /* Apply saved timezone with DST support */
+  wifiHandler.applyTimezone(deviceConfig.timezone_posix);
+
   // semaphore for the relay_on_time
   semph_relay = xSemaphoreCreateMutex();
   if (semph_relay == NULL) {

@@ -99,6 +99,23 @@ int WiFiHandler::getMinutes() const
   return timeinfo->tm_min;
 }
 
+void WiFiHandler::applyTimezone(const char *posixTz)
+{
+  if (!posixTz || strlen(posixTz) == 0) {
+    Serial.println("WiFiHandler: Invalid timezone string");
+    return;
+  }
+  
+  Serial.printf("WiFiHandler: Applying timezone: %s\n", posixTz);
+  
+  // configTzTime() sets up the timezone with automatic DST handling
+  // Parameters: const char *tzinfo, const char *server1, const char *server2
+  // We use the POSIX timezone string and NTP servers
+  configTzTime(posixTz, NTP_SERVER);
+  
+  Serial.println("WiFiHandler: Timezone applied");
+}
+
 void WiFiHandler::setupOTA()
 {
   ElegantOTA.begin(&_server);
@@ -196,6 +213,11 @@ void WiFiHandler::setupConfigPages()
     }
   );
 
+  // API: GET /api/time - return current time
+  _server.on("/api/time", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleGetTime(request);
+  });
+
   _server.on("/api/reset-config", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetConfig(request);
   });
@@ -220,16 +242,25 @@ void WiFiHandler::handleGetConfig(AsyncWebServerRequest *request)
     request->send(500, "application/json", "{\"error\":\"config not initialized\"}");
     return;
   }
-  char json[300];
+  char json[450];
   snprintf(json, sizeof(json),
     "{\"humidity_limit_high\":%.1f,\"humidity_limit_low\":%.1f,"
     "\"quiet_time_start_hour\":%u,\"quiet_time_start_min\":%u,"
     "\"quiet_time_end_hour\":%u,\"quiet_time_end_min\":%u,"
-    "\"pir_relay_on_time\":%u}",
+    "\"pir_relay_on_time\":%u,\"timezone_posix\":\"%s\"}",
     config->humidity_limit_high, config->humidity_limit_low,
     config->quiet_time_start_hour, config->quiet_time_start_min,
     config->quiet_time_end_hour, config->quiet_time_end_min,
-    config->pir_relay_on_time);
+    config->pir_relay_on_time, config->timezone_posix);
+  request->send(200, "application/json", json);
+}
+
+void WiFiHandler::handleGetTime(AsyncWebServerRequest *request)
+{
+  char json[100];
+  snprintf(json, sizeof(json),
+    "{\"hours\":%d,\"minutes\":%d,\"is_set\":%s}",
+    getHours(), getMinutes(), isTimeSet() ? "true" : "false");
   request->send(200, "application/json", json);
 }
 
@@ -256,6 +287,15 @@ void WiFiHandler::handleSetConfigBody(AsyncWebServerRequest *request)
     if (idx < 0) return -1;
     return _configPostBody.substring(idx + search.length()).toInt();
   };
+  auto getString = [&](const char *key) -> String {
+    String search = String('"') + key + "\":\"";    
+    int idx = _configPostBody.indexOf(search);
+    if (idx < 0) return "";
+    int start = idx + search.length();
+    int end = _configPostBody.indexOf('"', start);
+    if (end < 0) end = start + 127;  // Fallback
+    return _configPostBody.substring(start, end);
+  };
 
   float hh  = getFloat("humidity_limit_high");
   float hl  = getFloat("humidity_limit_low");
@@ -264,6 +304,7 @@ void WiFiHandler::handleSetConfigBody(AsyncWebServerRequest *request)
   int   qeh = getInt("quiet_time_end_hour");
   int   qem = getInt("quiet_time_end_min");
   int   pot = getInt("pir_relay_on_time");
+  String tz = getString("timezone_posix");
 
   if (!isnan(hh))  config->humidity_limit_high    = hh;
   if (!isnan(hl))  config->humidity_limit_low     = hl;
@@ -272,8 +313,16 @@ void WiFiHandler::handleSetConfigBody(AsyncWebServerRequest *request)
   if (qeh >= 0)    config->quiet_time_end_hour    = (uint16_t)qeh;
   if (qem >= 0)    config->quiet_time_end_min     = (uint16_t)qem;
   if (pot > 0)     config->pir_relay_on_time      = (uint16_t)pot;
+  if (tz.length() > 0) {
+    strncpy(config->timezone_posix, tz.c_str(), sizeof(config->timezone_posix) - 1);
+    config->timezone_posix[sizeof(config->timezone_posix) - 1] = '\0';
+  }
 
   if (cm->saveConfig(*config)) {
+    // Apply timezone change
+    if (tz.length() > 0) {
+      applyTimezone(config->timezone_posix);
+    }
     request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved.\"}" );
   } else {
     request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to save configuration.\"}");
@@ -291,6 +340,8 @@ void WiFiHandler::handleResetConfig(AsyncWebServerRequest *request)
   }
 
   if (cm->resetConfig(*config)) {
+    // Apply default timezone
+    applyTimezone(config->timezone_posix);
     request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration reset to defaults.\"}");
   } else {
     request->send(500, "application/json", "{\"status\":\"error\",\"message\":\"Failed to reset configuration.\"}");

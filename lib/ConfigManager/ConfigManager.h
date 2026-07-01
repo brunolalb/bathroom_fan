@@ -13,6 +13,7 @@ struct DeviceConfig {
   uint16_t quiet_time_end_hour;      // 0-23
   uint16_t quiet_time_end_min;       // 0-59
   uint16_t pir_relay_on_time;        // seconds relay stays ON after motion
+  char timezone_posix[128];          // POSIX timezone string (e.g., "CET-1CEST,M3.5.0/2,M10.5.0/3")
 };
 
 class ConfigManager {

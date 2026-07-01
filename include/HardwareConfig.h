@@ -72,5 +72,6 @@
 #define QUIET_TIME_END_HOUR_DEFAULT   6    // Quiet hours end (24h format)
 #define QUIET_TIME_END_MIN_DEFAULT    0    // Quiet hours end minutes
 #define PIR_RELAY_ON_TIME_DEFAULT     300  // PIR relay on time in seconds
+#define TIMEZONE_POSIX_DEFAULT        "CET-1CEST,M3.5.0/2,M10.5.0/3"  // Berlin timezone (POSIX format with DST)
 
 #endif
