@@ -106,6 +106,13 @@
         .btn-reset-wifi:hover {
             background-color: #c62828;
         }
+        .btn-home {
+            background-color: #5e35b1;
+            color: white;
+        }
+        .btn-home:hover {
+            background-color: #673ab7;
+        }
         .status {
             margin-top: 8px;
             padding: 8px;
@@ -231,6 +238,7 @@
         </form>
 
         <div class="button-group" style="flex-direction: column;">
+            <button class="btn-home" onclick="window.location.href='/'">🏠 Back to Dashboard</button>
             <button class="btn-ota" onclick="window.location.href='/update'">🔄 Firmware Update (OTA)</button>
             <button class="btn-reset-config" onclick="resetConfig()">⚠️ Reset to Defaults</button>
             <button class="btn-reset-wifi" onclick="resetWiFi()">🌐 Clear WiFi &amp; Restart</button>
