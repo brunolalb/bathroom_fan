@@ -1,6 +1,7 @@
 #include "WiFiHandler.h"
 #include "RGBLed.h"
 #include "ConfigManager.h"
+#include "HardwareConfig.h"
 #include <Arduino.h>
 #include <LittleFS.h>
 
@@ -8,8 +9,7 @@
 WiFiHandler *WiFiHandler::_instance = nullptr;
 
 WiFiHandler::WiFiHandler(const char *hostname, const char *apName)
-  : _timeClient(_ntpUDP, 60 * 60),  // 1 hour offset in seconds
-    _server(80),                       // AsyncWebServer on port 80
+  : _server(80),                       // AsyncWebServer on port 80
     _configManager(nullptr),
     _deviceConfig(nullptr),
     _hostname(hostname),
@@ -47,8 +47,10 @@ bool WiFiHandler::begin(RGBLed *led)
     }
   }
 
-  // Initialize NTP time client
-  _timeClient.begin();
+  // Initialize system NTP time synchronization with configTime()
+  // Using UTC as base timezone - specific timezone will be applied via system time
+  configTime(0, 0, NTP_SERVER);
+  Serial.println("WiFiHandler: NTP time synchronization started");
 
   // Start WiFi monitoring task
   xTaskCreate(wifiTaskStatic,
@@ -66,10 +68,7 @@ void WiFiHandler::loop()
   // This function should be called in the main loop to handle WiFiManager and OTA updates
   _wifiManager.process();
   ElegantOTA.loop();
-
-  if (WiFi.isConnected()) {
-    _timeClient.update();
-  }
+  // Note: NTP time is automatically synchronized by system configTime()
 }
 
 bool WiFiHandler::isConnected() const
@@ -79,22 +78,25 @@ bool WiFiHandler::isConnected() const
 
 bool WiFiHandler::isTimeSet() const
 {
-  return _timeClient.isTimeSet();
+  // Check if time has been synchronized by looking at the system time
+  // If time() returns a value greater than a known year (2020), then NTP has synced
+  time_t now = time(nullptr);
+  struct tm *timeinfo = localtime(&now);
+  return (timeinfo->tm_year + 1900) > 2020;  // If year is after 2020, NTP has synced
 }
 
 int WiFiHandler::getHours() const
 {
-  return _timeClient.getHours();
+  time_t now = time(nullptr);
+  struct tm *timeinfo = localtime(&now);
+  return timeinfo->tm_hour;
 }
 
 int WiFiHandler::getMinutes() const
 {
-  return _timeClient.getMinutes();
-}
-
-NTPClient& WiFiHandler::getTimeClient()
-{
-  return _timeClient;
+  time_t now = time(nullptr);
+  struct tm *timeinfo = localtime(&now);
+  return timeinfo->tm_min;
 }
 
 void WiFiHandler::setupOTA()

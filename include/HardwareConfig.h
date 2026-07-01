@@ -10,6 +10,7 @@
 #define WIFI_HOSTNAME "exaustor"
 #endif
 #define WIFI_AP_NAME "exaustor-setup"
+#define NTP_SERVER "pool.ntp.org"
 
 /****************************************
  * RGB LED Configuration

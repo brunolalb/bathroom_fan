@@ -63,10 +63,6 @@ PIRSensor pirSensor(PIR_PIN);
 /* Switch Sensor */
 SwitchSensor switchSensor(SWITCH_PIN, SWITCH_DEBOUNCE_TIME_MS);
 
-// Global for NTP time access via WiFiHandler
-#define timeClient (wifiHandler.getTimeClient())
-
-
 
 /* Global variables */
 long relay_on_time = 0;    // Controls how long relay stays ON
@@ -188,9 +184,9 @@ void control_loop(void *params)
       pirSensor.resetMovement();
 
       bool ignore = false;
-      if (timeClient.isTimeSet()) {
+      if (wifiHandler.isTimeSet()) {
         // Calculate if current time is between ignore intervals (quiet hours)
-        int now = timeClient.getHours() * 60 + timeClient.getMinutes();
+        int now = wifiHandler.getHours() * 60 + wifiHandler.getMinutes();
         int quietStart = deviceConfig.quiet_time_start_hour * 60 + deviceConfig.quiet_time_start_min;
         int quietEnd = deviceConfig.quiet_time_end_hour * 60 + deviceConfig.quiet_time_end_min;
 

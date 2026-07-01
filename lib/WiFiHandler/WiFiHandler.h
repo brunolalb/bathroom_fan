@@ -3,13 +3,12 @@
 
 #include <WiFi.h>
 #include <WiFiManager.h>
-#include <WiFiUdp.h>
-#include <NTPClient.h>
 #include <ESPmDNS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
 #include <LittleFS.h>
+#include <ctime>
 #include "freertos/FreeRTOS.h"
 
 // Forward declaration for LED control
@@ -63,12 +62,6 @@ public:
   int getMinutes() const;
 
   /**
-   * Get NTPClient instance for direct access to time functions
-   * @return reference to NTPClient
-   */
-  NTPClient& getTimeClient();
-
-  /**
    * Setup configuration web interface with REST API
    * Must be called after begin()
    * @param configManager Pointer to ConfigManager instance
@@ -85,8 +78,6 @@ public:
 
 private:
   WiFiManager _wifiManager;
-  WiFiUDP _ntpUDP;
-  NTPClient _timeClient;
   AsyncWebServer _server;
   void *_configManager;  // Void pointer to avoid circular dependency
   void *_deviceConfig;   // Void pointer to avoid circular dependency
