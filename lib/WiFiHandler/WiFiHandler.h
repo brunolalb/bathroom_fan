@@ -104,6 +104,8 @@ private:
   String getConfigJSON();
   void handleGetConfig(AsyncWebServerRequest *request);
   void handleGetTime(AsyncWebServerRequest *request);
+  void handleGetSensors(AsyncWebServerRequest *request);
+  void handleGetStatus(AsyncWebServerRequest *request);
   void handleSetConfigBody(AsyncWebServerRequest *request);
   void handleResetConfig(AsyncWebServerRequest *request);
   void handleResetWiFi(AsyncWebServerRequest *request);

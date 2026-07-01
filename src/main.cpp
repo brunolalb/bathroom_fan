@@ -67,6 +67,7 @@ SwitchSensor switchSensor(SWITCH_PIN, SWITCH_DEBOUNCE_TIME_MS);
 /* Global variables */
 long relay_on_time = 0;    // Controls how long relay stays ON
 long relay_keep_off = 15;  // Controls how long relay stays OFF
+DHTData currentSensorData = {0.0f, 0.0f};  // Latest sensor readings for API
 
 SemaphoreHandle_t semph_relay; // controls access to the relay_on_time and relay_keep_off
 
@@ -134,11 +135,8 @@ void control_loop(void *params)
       Serial.println("DHT queue not initialized");
       dhtQueue = dhtSensor.getQueue();
     } else if (xQueueReceive(dhtQueue, &dht_data, 0) == pdPASS) {
-      // Serial.print("Humidity: ");
-      // Serial.print(dht_data.humidity);
-      // Serial.print(" %, Temperature: ");
-      // Serial.print(dht_data.temperature);
-      // Serial.println(" C");
+      // Update global sensor data for API access
+      currentSensorData = dht_data;
       if (!isnan(dht_data.humidity) && (dht_data.humidity >= 0)) {
         // check if humidity within ranges
         if (dht_data.humidity >= deviceConfig.humidity_limit_high) { // high enough to turn the relay on

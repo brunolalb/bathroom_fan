@@ -2,8 +2,12 @@
 #include "RGBLed.h"
 #include "ConfigManager.h"
 #include "HardwareConfig.h"
+#include "DHTSensor.h"
 #include <Arduino.h>
 #include <LittleFS.h>
+
+// External sensor data from main.cpp
+extern DHTData currentSensorData;
 
 // Static member initialization
 WiFiHandler *WiFiHandler::_instance = nullptr;
@@ -218,6 +222,16 @@ void WiFiHandler::setupConfigPages()
     handleGetTime(request);
   });
 
+  // API: GET /api/sensors - return current sensor readings
+  _server.on("/api/sensors", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleGetSensors(request);
+  });
+
+  // API: GET /api/fan_status - return relay/fan status
+  _server.on("/api/fan_status", HTTP_GET, [this](AsyncWebServerRequest *request) {
+    handleGetStatus(request);
+  });
+
   _server.on("/api/reset-config", HTTP_POST, [this](AsyncWebServerRequest *request) {
     handleResetConfig(request);
   });
@@ -261,6 +275,27 @@ void WiFiHandler::handleGetTime(AsyncWebServerRequest *request)
   snprintf(json, sizeof(json),
     "{\"hours\":%d,\"minutes\":%d,\"is_set\":%s}",
     getHours(), getMinutes(), isTimeSet() ? "true" : "false");
+  request->send(200, "application/json", json);
+}
+
+void WiFiHandler::handleGetSensors(AsyncWebServerRequest *request)
+{
+  // Return current sensor readings from global variable
+  char json[100];
+  snprintf(json, sizeof(json),
+    "{\"temperature\":%.1f,\"humidity\":%.1f}",
+    currentSensorData.temperature, currentSensorData.humidity);
+  request->send(200, "application/json", json);
+}
+
+void WiFiHandler::handleGetStatus(AsyncWebServerRequest *request)
+{
+  // Return relay/fan status
+  char json[50];
+  bool relayOn = RELAY_IS_ON();
+  snprintf(json, sizeof(json),
+    "{\"relay_on\":%s}",
+    relayOn ? "true" : "false");
   request->send(200, "application/json", json);
 }
 

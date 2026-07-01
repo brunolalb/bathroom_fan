@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bathroom Fan Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/gh/Mikhus/canvas-gauges@gh-pages/download/2.1.7/all/gauge.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 10px;
+            background-color: #121212;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.7);
+            width: 100%;
+        }
+
+        h1 {
+            color: #e0e0e0;
+            text-align: center;
+            font-size: 1.3em;
+            margin: 0 0 15px 0;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .time-section {
+            background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
+            padding: 8px 15px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #a5d6a7;
+            font-size: 2em;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .time-status {
+            font-size: 0.5em;
+            color: #81c784;
+        }
+
+        .sensors-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .sensor-card {
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        .sensor-label {
+            font-size: 0.85em;
+            color: #b0b0b0;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Humidity Gauge - Canvas Gauge */
+        .humidity-gauge {
+            width: 300px;
+            height: 300px;
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas {
+            max-width: 100%;
+            display: block;
+            overflow: hidden;
+        }
+
+        /* Temperature Gauge */
+        .thermometer {
+            width: 100%;
+            height: 300px;
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Buttons */
+        .button-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-config {
+            background: linear-gradient(135deg, #5e35b1 0%, #673ab7 100%);
+            color: white;
+        }
+
+        .btn-config:hover {
+            background: linear-gradient(135deg, #673ab7 0%, #7e57c2 100%);
+            box-shadow: 0 4px 12px rgba(94, 53, 177, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .btn-refresh {
+            background: linear-gradient(135deg, #1565c0 0%, #1976d2 100%);
+            color: white;
+        }
+
+        .btn-refresh:hover {
+            background: linear-gradient(135deg, #1976d2 0%, #1e88e5 100%);
+            box-shadow: 0 4px 12px rgba(21, 101, 192, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .status {
+            text-align: center;
+            font-size: 0.85em;
+            color: #b0b0b0;
+            margin-top: 15px;
+            min-height: 20px;
+        }
+
+        .status.loading {
+            color: #90caf9;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .error {
+            color: #ef9a9a;
+        }
+
+        .fan-status {
+            text-align: center;
+            font-size: 2.4em;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+
+        .fan-icon {
+            display: inline-block;
+            width: 60px;
+            height: 60px;
+            text-align: center;
+            line-height: 60px;
+        }
+
+        .fan-icon.on {
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 400px) {
+            .sensors-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .time-section {
+                font-size: 1.6em;
+            }
+
+            h1 {
+                font-size: 1.1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚿 Bathroom Fan Dashboard</h1>
+
+        <div class="time-section">
+            <div id="currentTime">--:--</div>
+            <div class="time-status" id="timeStatus">⏳</div>
+        </div>
+
+        <div class="fan-status">
+            <div class="fan-icon" id="fanIcon">🌀</div>
+        </div>
+
+        <div class="sensors-grid">
+            <!-- Humidity Gauge -->
+            <div class="humidity-gauge">
+                <canvas id="humidityGauge" width="300" height="300"></canvas>
+            </div>
+
+            <!-- Temperature Linear Gauge -->
+            <div class="thermometer">
+                <canvas id="tempGauge" width="125" height="300"></canvas>
+            </div>
+        </div>
+
+        <div class="button-section">
+            <button class="btn-config" onclick="goToConfig()">⚙️ Configuration</button>
+            <button class="btn-refresh" onclick="refreshData()">🔄 Refresh</button>
+        </div>
+
+        <div class="status" id="status">Loading sensor data...</div>
+    </div>
+
+    <script>
+        const CONFIG_API = '/api/config';
+        const TIME_API = '/api/time';
+        const SENSOR_API = '/api/sensors';
+        const STATUS_API = '/api/fan_status';
+        
+        let humidityGauge = null;
+        let tempGauge = null;
+
+        // Initialize on page load
+        window.onload = function() {
+            initializeGauges();
+            loadAllData();
+            // Update time every second
+            setInterval(updateTime, 1000);
+            // Update sensor data every 3 seconds
+            setInterval(loadSensorData, 3000);
+            // Update fan status every 2 seconds
+            setInterval(updateFanStatus, 2000);
+        };
+
+        function initializeGauges() {
+            const canvas = document.getElementById('humidityGauge');
+            if (!canvas) return;
+
+            // Create horizontal half-gauge using canvas-gauges library
+            humidityGauge = new RadialGauge({
+                renderTo: canvas,
+                width: 300,
+                height: 300,
+                units: '%',
+                title: "Humidity",
+                minValue: 0,
+                maxValue: 100,
+                majorTicks: ['0', '25', '50', '75', '100'],
+                minorTicks: 2,
+                strokeTicks: true,
+                highlights: [
+                    { from: 0, to: 60, color: '#4caf50' },
+                    { from: 60, to: 100, color: '#ff6f00' }
+                ],
+                colorPlate: '#1e1e1e',
+                colorMajorTicks: '#999',
+                colorMinorTicks: '#666',
+                colorTitle: '#e0e0e0',
+                colorUnits: '#b0b0b0',
+                colorNumbers: '#e0e0e0',
+                colorNeedle: '#ffeb3b',
+                colorNeedleCircleOuter: '#ffeb3b',
+                colorNeedleCircleInner: '#fbc02d',
+                needle: true,
+                needleType: 'line',
+                needleWidth: 3,
+                needleCircleSize: 10,
+                ticksAngle: 225,
+                startAngle: 67.5,
+                valueDec: 0,
+                valueInt: 0,
+                valueBox: true,
+                valueBoxStroke: 0,
+                valueBoxBorderRadius: 0,
+                borders: false,
+                borderShadow: false,
+                animationRule: 'linear',
+                animationDuration: 500
+            });
+            
+            humidityGauge.draw();
+            humidityGauge.value = 0;
+
+            // Temperature linear gauge
+            const tempCanvas = document.getElementById('tempGauge');
+            if (!tempCanvas) return;
+
+            tempGauge = new LinearGauge({
+                renderTo: tempCanvas,
+                width: 125,
+                height: 300,
+                units: '°C',
+                minValue: 0,
+                maxValue: 40,
+                majorTicks: ['0', '10', '20', '30', '40'],
+                minorTicks: 2,
+                strokeTicks: true,
+                highlights: [
+                    { from: 0, to: 15, color: '#4dd0e1' },
+                    { from: 15, to: 25, color: '#4caf50' },
+                    { from: 25, to: 30, color: '#ff9800' },
+                    { from: 30, to: 40, color: '#ff5252' }
+                ],
+                colorPlate: '#1e1e1e',
+                colorMajorTicks: '#999',
+                colorMinorTicks: '#666',
+                colorNumbers: '#e0e0e0',
+                colorNeedle: '#ff5252',
+                colorNeedleCircleOuter: '#ff5252',
+                needle: true,
+                needleType: 'line',
+                needleWidth: 3,
+                needleCircleSize: 7,
+                needleCircleOuter: true,
+                needleCircleInner: false,
+                barStrokeWidth: 0,
+                valueDec: 1,
+                valueInt: 0,
+                valueBox: true,
+                valueBoxStroke: 0,
+                valueBoxBorderRadius: 0,
+                borders: false,
+                borderShadow: false,
+                animationRule: 'linear',
+                animationDuration: 500
+            });
+
+            tempGauge.draw();
+            tempGauge.value = 0;
+        }
+
+        function loadAllData() {
+            loadConfig();
+            updateTime();
+            loadSensorData();
+            updateFanStatus();
+        }
+
+        function updateTime() {
+            fetch(TIME_API)
+                .then(response => response.json())
+                .then(data => {
+                    const hours = String(data.hours).padStart(2, '0');
+                    const minutes = String(data.minutes).padStart(2, '0');
+                    document.getElementById('currentTime').textContent = `${hours}:${minutes}`;
+                    
+                    const statusStr = data.is_set ? '✓' : '⏳';
+                    document.getElementById('timeStatus').textContent = statusStr;
+                })
+                .catch(error => {
+                    document.getElementById('currentTime').textContent = '--:--';
+                    document.getElementById('timeStatus').textContent = '⚠️';
+                    showStatus('Time sync error', true);
+                });
+        }
+
+        function loadConfig() {
+            fetch(CONFIG_API)
+                .then(response => response.json())
+                .then(data => {
+                    const highLimit = data.humidity_limit_high || 60;
+                    if (humidityGauge) {
+                        // Update gauge highlights based on high limit
+                        humidityGauge.options.highlights = [
+                            { from: 0, to: highLimit, color: '#4caf50' },
+                            { from: highLimit, to: 100, color: '#ff6f00' }
+                        ];
+                        humidityGauge.draw();
+                    }
+                })
+                .catch(error => showStatus('Config load error', true));
+        }
+
+        function updateFanStatus() {
+            fetch(STATUS_API)
+                .then(response => response.json())
+                .then(data => {
+                    const fanIcon = document.getElementById('fanIcon');
+                    const isOn = data.relay_on || data.fan_on || false;
+                    
+                    if (isOn) {
+                        fanIcon.textContent = '💨';
+                        fanIcon.classList.add('on');
+                    } else {
+                        fanIcon.textContent = '🌀';
+                        fanIcon.classList.remove('on');
+                    }
+                })
+                .catch(error => {
+                    const fanIcon = document.getElementById('fanIcon');
+                    fanIcon.textContent = '⚠️';
+                });
+        }
+
+        function updateGaugeValueBoxColor(gauge) {
+            if (!gauge) return;
+            
+            const value = gauge.value;
+            const options = gauge.options;
+            const highlights = options.highlights || [];
+            
+            // Find which highlight range the value falls into
+            let highlightColor = '#fff';
+            for (let i = 0; i < highlights.length; i++) {
+                if (value >= highlights[i].from && value < highlights[i].to) {
+                    highlightColor = highlights[i].color;
+                    break;
+                }
+            }
+            
+            // Calculate luminance to determine if text should be dark or light
+            const color = highlightColor.replace('#', '');
+            const r = parseInt(color.substr(0, 2), 16);
+            const g = parseInt(color.substr(2, 2), 16);
+            const b = parseInt(color.substr(4, 2), 16);
+            const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+            
+            // Choose text color based on background luminance
+            const textColor = luminance > 0.5 ? '#000' : '#fff';
+            
+            // Update gauge options
+            gauge.options.colorValueBoxBackground = highlightColor;
+            gauge.options.colorValueText = textColor;
+            gauge.draw();
+        }
+
+        function loadSensorData() {
+            fetch(SENSOR_API)
+                .then(response => response.json())
+                .then(data => {
+                    // Update humidity gauge
+                    const humidity = data.humidity || 0;
+                    if (humidityGauge) {
+                        humidityGauge.value = humidity;
+                        updateGaugeValueBoxColor(humidityGauge);
+                    }
+                    
+                    // Update temperature gauge
+                    const temperature = data.temperature || 0;
+                    if (tempGauge) {
+                        tempGauge.value = temperature;
+                        updateGaugeValueBoxColor(tempGauge);
+                    }
+                    
+                    showStatus('');
+                })
+                .catch(error => {
+                    if (humidityGauge) {
+                        humidityGauge.value = 0;
+                    }
+                    if (tempGauge) {
+                        tempGauge.value = 0;
+                    }
+                    showStatus('Sensor data error', true);
+                });
+        }
+
+        function goToConfig() {
+            window.location.href = '/config.html';
+        }
+
+        function refreshData() {
+            loadAllData();
+            showStatus('Refreshing...', false, 2000);
+        }
+
+        function showStatus(message, isError = false, duration = 0) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.classList.toggle('error', isError);
+            
+            if (duration > 0) {
+                setTimeout(() => statusEl.textContent = '', duration);
+            }
+        }
+    </script>
+</body>
+</html>
