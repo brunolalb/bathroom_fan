@@ -6,6 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "Bathroom Fan Controller")
+		(date "2026-07-05")
 		(rev "1.0")
 		(company "brunolalb@gmail.com")
 		(comment 1 "Bruno Landau Albrecht")
@@ -1790,7 +1791,7 @@
 							)
 						)
 					)
-					(number "2"
+					(number "3"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3168,6 +3169,12 @@
 		)
 	)
 	(junction
+		(at 165.1 55.88)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "0bfa0fcc-ff41-4fda-984a-a8316930aaf3")
+	)
+	(junction
 		(at 220.98 55.88)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3238,6 +3245,16 @@
 			(type default)
 		)
 		(uuid "30d75f46-c2f0-4391-bb27-2132aceba93e")
+	)
+	(wire
+		(pts
+			(xy 165.1 55.88) (xy 170.18 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "356feee9-a909-4e95-bc3f-1a90e17ecae0")
 	)
 	(wire
 		(pts
@@ -3449,6 +3466,16 @@
 		)
 		(uuid "f2bb07ed-d8eb-43ef-ad67-87980eb7fb96")
 	)
+	(label "AC1"
+		(at 59.69 36.83 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "0dafb9aa-b700-402f-b49e-f230e75bfca1")
+	)
 	(label "RGB_BLUE"
 		(at 124.46 101.6 0)
 		(effects
@@ -3468,16 +3495,6 @@
 			(justify left bottom)
 		)
 		(uuid "260fb4d3-e119-4804-a4e1-eb7771074216")
-	)
-	(label "AC1"
-		(at 59.69 31.75 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "4ca486d1-36cf-4c9d-8715-43fced2e0d64")
 	)
 	(label "RGB_GREEN"
 		(at 123.19 83.82 0)
@@ -3508,6 +3525,16 @@
 			(justify left bottom)
 		)
 		(uuid "94c3536c-efd3-47ad-8611-497362f44b98")
+	)
+	(label "AC2"
+		(at 59.69 31.75 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "a615d3c9-a192-4660-a1e1-f4de2be74a68")
 	)
 	(label "RGB_BLUE"
 		(at 200.66 124.46 0)
@@ -3619,16 +3646,6 @@
 		)
 		(uuid "dee0fa73-eac4-4839-ab0c-f77b2630a21f")
 	)
-	(label "AC2"
-		(at 59.69 36.83 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "e9b7e1e2-6066-41aa-a1c2-967e99ac667b")
-	)
 	(label "RGB_GREEN"
 		(at 200.66 119.38 0)
 		(effects
@@ -3648,6 +3665,149 @@
 			(justify left bottom)
 		)
 		(uuid "fb1d0b67-1d00-437d-be93-1164a1a49ab0")
+	)
+	(rule_area
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(polyline
+			(pts
+				(xy 78.74 22.86) (xy 124.46 22.86) (xy 124.46 43.18) (xy 78.74 43.18)
+			)
+			(stroke
+				(width 0)
+				(type dash)
+			)
+			(fill
+				(type none)
+			)
+			(uuid "569ab0bd-22a0-44da-a66c-2d93f00dea10")
+		)
+	)
+	(rule_area
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(polyline
+			(pts
+				(xy 39.37 25.4) (xy 39.37 60.96) (xy 19.05 60.96) (xy 19.05 25.4)
+			)
+			(stroke
+				(width 0)
+				(type dash)
+			)
+			(fill
+				(type none)
+			)
+			(uuid "f497b7ab-6db7-4823-a360-14f1086e324f")
+		)
+	)
+	(netclass_flag ""
+		(length 2.54)
+		(shape round)
+		(at 170.18 55.88 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "0485c05f-efa7-41d7-9cc6-28dd951fbcc3")
+		(property "Netclass" "POWER_DC"
+			(at 170.8785 53.34 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Component Class" ""
+			(at 160.02 40.64 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+			)
+		)
+	)
+	(netclass_flag ""
+		(length 2.54)
+		(shape round)
+		(at 93.98 22.86 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "a5ea02a4-761f-471e-8c14-56405805f5a6")
+		(property "Netclass" "POWER_DC"
+			(at 94.6785 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Component Class" ""
+			(at 83.82 7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+			)
+		)
+	)
+	(netclass_flag ""
+		(length 2.54)
+		(shape round)
+		(at 29.21 25.4 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "ba7e5706-31a3-4072-83ee-0a7e3783ff88")
+		(property "Netclass" "AC"
+			(at 29.9085 22.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Component Class" ""
+			(at 50.8 7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+			)
+		)
 	)
 	(symbol
 		(lib_id "Sensor:DHT11")
@@ -3683,7 +3843,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Sensor:Aosong_DHT11_5.5x12.0_P2.54mm"
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
 			(at 220.98 58.42 0)
 			(hide yes)
 			(show_name no)
@@ -3769,7 +3929,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_1.00mm:PinHeader_1x04_P1.00mm_Vertical"
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
 			(at 224.79 120.65 0)
 			(hide yes)
 			(show_name no)
@@ -4167,7 +4327,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 233.172 44.45 90)
 			(hide yes)
 			(show_name no)
@@ -4570,7 +4730,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 215.9 121.158 90)
 			(hide yes)
 			(show_name no)
@@ -4706,7 +4866,6 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "7481a344-40f9-4c88-87a7-2a512697c9e3")
 		(property "Reference" "J2"
 			(at 27.94 45.72 0)
@@ -4728,7 +4887,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal"
 			(at 27.94 54.61 0)
 			(hide yes)
 			(show_name no)
@@ -4753,6 +4912,16 @@
 		(property "Description" "Generic screw terminal, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"
 			(at 27.94 54.61 0)
 			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Name" "FAN"
+			(at 28.194 57.912 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5119,7 +5288,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
 			(at 111.76 31.75 0)
 			(hide yes)
 			(show_name no)
@@ -5276,7 +5445,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 215.9 116.078 90)
 			(hide yes)
 			(show_name no)
@@ -5412,7 +5581,6 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "b60912e3-5b0a-49f5-8c31-35653246a487")
 		(property "Reference" "J1"
 			(at 27.94 27.94 0)
@@ -5434,7 +5602,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal"
 			(at 27.94 36.83 0)
 			(hide yes)
 			(show_name no)
@@ -5459,6 +5627,16 @@
 		(property "Description" "Generic screw terminal, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)"
 			(at 27.94 36.83 0)
 			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Name" "POWER"
+			(at 27.94 39.878 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5513,7 +5691,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "bathroom_fan:ACDC_Module_5V_700mA"
 			(at 74.93 43.18 0)
 			(hide yes)
 			(show_name no)
@@ -5552,7 +5730,7 @@
 		(pin "1"
 			(uuid "58904119-4754-4e93-9bc2-f0daef6743d8")
 		)
-		(pin "2"
+		(pin "3"
 			(uuid "9de6a5f8-4d7a-475f-b7b9-a52d9863826f")
 		)
 		(pin "L"
@@ -5844,7 +6022,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Capacitor_THT:CP_Radial_D4.0mm_P2.00mm"
 			(at 206.7052 52.07 0)
 			(hide yes)
 			(show_name no)
@@ -5926,7 +6104,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "bathroom_fan:HC-SR501"
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
 			(at 220.98 97.536 0)
 			(hide yes)
 			(show_name no)
@@ -6164,7 +6342,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 215.9 126.238 90)
 			(hide yes)
 			(show_name no)
