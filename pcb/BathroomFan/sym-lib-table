@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "bathroom_fan") (type "KiCad") (uri "${KIPRJMOD}/../library/bathroom_fan.kicad_sym") (options "") (descr ""))
+)
